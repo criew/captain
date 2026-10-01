@@ -111,6 +111,11 @@ services:
     environment:
       <<: *proxy-env
       OPENCODE_URL: http://opencode:4096
+      # Exakt derselbe Wert wie beim opencode-Service (sonst HTTP 401, z. B.
+      # wenn die Shell eine abweichende Variable setzt oder die .env noch ein
+      # altes OPENCODE_PASSWORD enthält).
+      OPENCODE_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD in .env setzen}
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD in .env setzen}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-llm/${LLM_MODEL:-}}
       SESSIONS_DIR: /tmp/captain
       DATA_DIR: /data
