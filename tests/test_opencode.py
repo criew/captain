@@ -720,3 +720,28 @@ def test_ensure_mcp_relearns_after_opencode_restart():
         t0 = time.monotonic()
         c.ensure_mcp("/tmp/captain/ses_d", grace=0.2)
         assert time.monotonic() - t0 < 0.15
+
+
+def test_messages_since_pages_with_cursor_only():
+    """Folgeseiten nur mit ``cursor`` – opencode lehnt cursor + order mit 400 ab."""
+    seen: list[dict] = []
+    page1 = [{"id": f"msg_new{i}", "type": "assistant"} for i in range(50)]
+    page2 = [{"id": "msg_older", "type": "assistant"}, {"id": "msg_user", "type": "user"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = dict(request.url.params)
+        seen.append(params)
+        if "cursor" in params and "order" in params:
+            return httpx.Response(400, json={"_tag": "InvalidCursorError"})
+        if "cursor" in params:
+            return httpx.Response(200, json={"data": page2, "cursor": {}})
+        return httpx.Response(200, json={"data": page1, "cursor": {"next": "c2"}})
+
+    client = OpencodeClient("http://oc", "pw", transport=httpx.MockTransport(handler))
+    try:
+        msgs = client._messages_since("ses_x", "msg_user", page=50)
+    finally:
+        client.close()
+    assert [m["id"] for m in msgs] == ["msg_older"] + [f"msg_new{i}" for i in reversed(range(50))]
+    assert seen[0] == {"limit": "50", "order": "desc"}
+    assert seen[1] == {"limit": "50", "cursor": "c2"}
