@@ -218,26 +218,50 @@ export function buildConfig(text, env, warn = () => {}) {
   return { clean, json };
 }
 
+// --- Erlaubte Provider ----------------------------------------------------------
+// opencode bringt eingebaute Cloud-Provider mit (u. a. "opencode" mit
+// kostenlosen Zen-Modellen). Ohne Einschraenkung koennte jeder Chat per
+// !modell dorthin wechseln – Chat-Inhalte verliessen dann das Haus. Erlaubt
+// sind deshalb nur die Provider der Admin-Config plus eingebaute
+// Cloud-Provider, deren API-Key ausdruecklich gesetzt ist.
+export const CLOUD_KEYS = { ANTHROPIC_API_KEY: "anthropic", OPENAI_API_KEY: "openai", OPENROUTER_API_KEY: "openrouter" };
+// Platzhalter, falls gar nichts konfiguriert ist: leere Liste hiesse bei
+// opencode "keine Einschraenkung".
+export const NO_PROVIDER = "captain-kein-provider";
+
+export function enabledProviders(clean, env) {
+  const set = new Set(Object.keys(clean?.providers ?? {}));
+  for (const [key, id] of Object.entries(CLOUD_KEYS)) if (env[key]) set.add(id);
+  return set.size ? [...set].sort() : [NO_PROVIDER];
+}
+
 // --- Umgebung fuer opencode ---------------------------------------------------
+const FIXED_CONFIG = { share: "disabled", update: "disable", websearch: false, lsp: false, formatter: false, snapshots: false };
 export const FIXED = {
   HOME: "/root",
   OPENCODE_DISABLE_PROJECT_CONFIG: "1",
   OPENCODE_CONFIG_PROJECT_DISABLE: "1",
   OPENCODE_CONFIG: TARGET,
-  OPENCODE_CONFIG_CONTENT: JSON.stringify({ share: "disabled", update: "disable", websearch: false, lsp: false, formatter: false, snapshots: false }),
+  OPENCODE_CONFIG_CONTENT: JSON.stringify(FIXED_CONFIG),
   OPENCODE_DISABLE_AUTOUPDATE: "1",
+  // Keine Modell-Liste von models.dev nachladen (externer Abruf)
+  OPENCODE_DISABLE_MODELS_FETCH: "1",
 };
 const PASS = new Set(["PATH", "TZ", "LANG", "LC_ALL", "OPENCODE_SERVER_PASSWORD", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE",
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"]);
 // Eingebaute Cloud-Provider lesen ihre Keys selbst aus der Umgebung
 const PASS_RE = /^[A-Z0-9_]+_API_KEY$/;
 
-export function environment(env) {
+export function environment(env, enabled = [NO_PROVIDER]) {
   const out = {};
   for (const [k, v] of Object.entries(env)) {
     if (PASS.has(k) || (PASS_RE.test(k) && !REF_NEVER.test(k))) out[k] = v;
   }
-  return { ...out, ...FIXED };
+  return {
+    ...out,
+    ...FIXED,
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...FIXED_CONFIG, enabled_providers: enabled }),
+  };
 }
 
 function main() {
@@ -266,9 +290,10 @@ function main() {
     fail(`${TARGET} nicht schreibbar: ${e.message}`);
   }
   const c = built.clean;
-  console.error(`[captain-start] Admin-Config geprueft: ${Object.keys(c).join(", ") || "(leer)"}; MCP-Server: ${Object.keys(c.mcp?.servers ?? {}).join(", ") || "keine"}`);
+  const enabled = enabledProviders(c, process.env);
+  console.error(`[captain-start] Admin-Config geprueft: ${Object.keys(c).join(", ") || "(leer)"}; MCP-Server: ${Object.keys(c.mcp?.servers ?? {}).join(", ") || "keine"}; Provider: ${enabled.join(", ")}`);
 
-  const child = spawn(COMMAND[0], COMMAND.slice(1), { stdio: "inherit", env: environment(process.env) });
+  const child = spawn(COMMAND[0], COMMAND.slice(1), { stdio: "inherit", env: environment(process.env, enabled) });
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => child.kill(sig));
   child.on("error", (e) => fail(`opencode nicht startbar: ${e.message}`));
   child.on("exit", (code, signal) => process.exit(code ?? (signal ? 128 : 1)));
