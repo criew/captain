@@ -27,9 +27,9 @@ def main() -> int:
         print(f"[Captain] {e}", file=sys.stderr)
         return 2
     logging.getLogger("captain").info(
-        "Mattermost %s, opencode %s, Modell %s, Session-Verzeichnisse %s, Daten %s",
+        "Mattermost %s, opencode %s, Modell %s, Session-Verzeichnisse %s, Daten %s, webfetch %s",
         cfg.mm_url, cfg.opencode_url, cfg.opencode_model or "(Standard)",
-        cfg.sessions_dir, cfg.data_dir,
+        cfg.sessions_dir, cfg.data_dir, ", ".join(cfg.webfetch_allow) or "aus",
     )
 
     store = SessionStore(os.path.join(cfg.data_dir, "sessions.json"))

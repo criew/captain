@@ -22,9 +22,16 @@
 // Verworfenes steht als WARNUNG im Log. Aenderungen an der Admin-Datei wirken
 // erst nach einem Neustart des Containers. opencode selbst bekommt nur eine
 // kleine Umgebungs-Allowlist; die Sicherheitsschalter sind fest.
+//
+// webfetch: CAPTAIN_WEBFETCH_ALLOW (kommagetrennte URL-Praefixe, leer = aus)
+// wird hier zu experimental.policies in OPENCODE_CONFIG_CONTENT (harte
+// Obergrenze, siehe webfetchPolicies) und – wenn gesetzt – zu einem
+// Egress-Filter (egress.mjs), weil opencode Weiterleitungen ungeprueft folgt.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
+
+import { allowedTargets, startGuard } from "./egress.mjs";
 
 export const SOURCE = "/etc/captain/opencode.jsonc";
 export const TARGET = "/run/captain/opencode.json";
@@ -235,6 +242,79 @@ export function enabledProviders(clean, env) {
   return set.size ? [...set].sort() : [NO_PROVIDER];
 }
 
+// --- webfetch-Allowlist (CAPTAIN_WEBFETCH_ALLOW) ------------------------------
+// Gleiche Normalisierung wie captain/webfetch.py (gemeinsame Testfaelle:
+// tests/data/webfetch_allow.json). opencode 2.0.20 prueft bei webfetch die
+// ROHE URL des Modells gegen Muster: "*" = beliebig viel (auch "/"),
+// "?" = genau ein beliebiges Zeichen, "\\" im Wert zaehlt als "/", Gross-/
+// Kleinschreibung zaehlt. Ein Eintrag wird deshalb zu "<praefix>" und
+// "<praefix>/*" – das "/" verhindert Praefix-Tricks wie
+// http://text-example.org.evil.com oder http://text-example.org@evil.com.
+export const WEBFETCH_ENV = "CAPTAIN_WEBFETCH_ALLOW";
+const WF_PORT = { http: 80, https: 443 };
+const WF_ENTRY = /^([A-Za-z]+):\/\/(\[[0-9A-Fa-f:.]+\]|[^/:[\]]+)(?::([0-9]{1,5}))?(\/.*)?$/s;
+const WF_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const WF_FORBIDDEN = /[*?#\\@\s\x00-\x1f\x7f]/;
+// Nach den Freigaben verboten: ".."-Segmente (auch kodiert) und Zeichen, die
+// der URL-Parser still entfernt (Tab/LF/CR). "?" ist hier der Platzhalter.
+export const WEBFETCH_DENY = ["*/..", "*/..?*", "*/%2e*", "*/%2E*", "*/.%2e*", "*/.%2E*", "*\t*", "*\n*", "*\r*"];
+
+export function normalizeWebfetchEntry(entry) {
+  if (!/^[\x00-\x7f]*$/.test(entry)) throw new Error("nur ASCII (IDN als Punycode xn--…)");
+  const bad = entry.match(WF_FORBIDDEN);
+  if (bad) throw new Error(`Zeichen ${JSON.stringify(bad[0])} nicht erlaubt (keine Platzhalter, Query, Userinfo)`);
+  const m = entry.match(WF_ENTRY);
+  if (!m) throw new Error("Format: http(s)://host[:port][/pfad]");
+  const scheme = m[1].toLowerCase();
+  if (!Object.hasOwn(WF_PORT, scheme)) throw new Error("nur http:// oder https://");
+  const host = m[2].toLowerCase();
+  if (!host.startsWith("[") && (host.length > 253 || !host.split(".").every((l) => WF_LABEL.test(l)))) {
+    throw new Error("ungueltiger Hostname (nur a-z, 0-9, '-', Punkte; IDN als Punycode)");
+  }
+  let port = "";
+  if (m[3] !== undefined) {
+    const n = Number(m[3]);
+    if (!(n > 0 && n < 65536)) throw new Error("ungueltiger Port");
+    if (n !== WF_PORT[scheme]) port = `:${n}`;
+  }
+  const path = (m[4] ?? "").replace(/\/+$/, "");
+  const segments = path.split("/").slice(1);
+  if (segments.some((s) => s === "." || s === ".." || s.toLowerCase().includes("%2e")) || path.includes("//")) {
+    throw new Error("Pfad ohne '.', '..', '%2e' und leere Segmente");
+  }
+  return `${scheme}://${host}${port}${path}`;
+}
+
+// "a, b" -> kanonische Praefixe; wirft bei einem ungueltigen Eintrag (fail closed)
+export function parseWebfetchAllow(value) {
+  const out = [];
+  for (const raw of String(value ?? "").split(",")) {
+    const entry = raw.trim();
+    if (!entry) continue;
+    let prefix;
+    try {
+      prefix = normalizeWebfetchEntry(entry);
+    } catch (e) {
+      throw new Error(`${WEBFETCH_ENV}: Eintrag ${JSON.stringify(entry)} ungueltig: ${e.message}`);
+    }
+    if (!out.includes(prefix)) out.push(prefix);
+  }
+  return out;
+}
+
+export const webfetchPatterns = (prefixes) => prefixes.flatMap((p) => [p, `${p}/*`]);
+
+// Policies (Format "<aktion>:<ressource>"): bei mehreren Treffern gewinnt die
+// LETZTE der fruehesten Quelle. Die Sicherheitsbasis enthaelt deshalb KEINE
+// webfetch-Policy (sie wuerde jede Freigabe hier schlagen); diese hier stehen
+// in OPENCODE_CONFIG_CONTENT, und die Admin-Config darf "experimental" nicht
+// setzen. Ohne Allowlist bleibt nur "webfetch:*" deny – wie bisher.
+export function webfetchPolicies(prefixes) {
+  const rule = (resource, effect) => ({ action: "permission", resource: `webfetch:${resource}`, effect });
+  if (!prefixes.length) return [rule("*", "deny")];
+  return [rule("*", "deny"), ...webfetchPatterns(prefixes).map((p) => rule(p, "allow")), ...WEBFETCH_DENY.map((p) => rule(p, "deny"))];
+}
+
 // --- Umgebung fuer opencode ---------------------------------------------------
 const FIXED_CONFIG = { share: "disabled", update: "disable", websearch: false, lsp: false, formatter: false, snapshots: false };
 export const FIXED = {
@@ -252,19 +332,32 @@ const PASS = new Set(["PATH", "TZ", "LANG", "LC_ALL", "OPENCODE_SERVER_PASSWORD"
 // Eingebaute Cloud-Provider lesen ihre Keys selbst aus der Umgebung
 const PASS_RE = /^[A-Z0-9_]+_API_KEY$/;
 
-export function environment(env, enabled = [NO_PROVIDER]) {
+// Mit Egress-Filter (proxy) laeuft aller Verkehr von opencode ueber ihn; nur
+// Loopback geht direkt. Der Filter selbst nutzt die urspruenglichen
+// HTTP(S)_PROXY/NO_PROXY.
+const LOOPBACK = "localhost,127.0.0.1,::1";
+
+export function environment(env, enabled = [NO_PROVIDER], { webfetch = [], proxy = null } = {}) {
   const out = {};
   for (const [k, v] of Object.entries(env)) {
     if (PASS.has(k) || (PASS_RE.test(k) && !REF_NEVER.test(k))) out[k] = v;
   }
+  const proxied = proxy
+    ? { HTTP_PROXY: proxy, HTTPS_PROXY: proxy, http_proxy: proxy, https_proxy: proxy, NO_PROXY: LOOPBACK, no_proxy: LOOPBACK }
+    : {};
   return {
     ...out,
+    ...proxied,
     ...FIXED,
-    OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...FIXED_CONFIG, enabled_providers: enabled }),
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({
+      ...FIXED_CONFIG,
+      enabled_providers: enabled,
+      experimental: { policies: webfetchPolicies(webfetch) },
+    }),
   };
 }
 
-function main() {
+async function main() {
   const warn = (msg) => console.error(`[captain-start] WARNUNG: ${msg}`);
   const fail = (msg) => {
     console.error(`[captain-start] FEHLER: ${msg} – opencode startet nicht.`);
@@ -293,7 +386,26 @@ function main() {
   const enabled = enabledProviders(c, process.env);
   console.error(`[captain-start] Admin-Config geprueft: ${Object.keys(c).join(", ") || "(leer)"}; MCP-Server: ${Object.keys(c.mcp?.servers ?? {}).join(", ") || "keine"}; Provider: ${enabled.join(", ")}`);
 
-  const child = spawn(COMMAND[0], COMMAND.slice(1), { stdio: "inherit", env: environment(process.env, enabled) });
+  let webfetch = [];
+  try {
+    webfetch = parseWebfetchAllow(process.env[WEBFETCH_ENV]);
+  } catch (e) {
+    fail(e.message);
+  }
+  let proxy = null;
+  if (webfetch.length) {
+    const allowed = allowedTargets(webfetch, c, process.env, warn);
+    try {
+      ({ url: proxy } = await startGuard({ allowed, env: process.env, log: (msg) => console.error(`[captain-egress] ${msg}`) }));
+    } catch (e) {
+      fail(`Egress-Filter nicht startbar: ${e.message}`);
+    }
+    console.error(`[captain-start] webfetch erlaubt fuer: ${webfetch.join(", ")}; Egress-Filter ${proxy}, Ziele: ${[...allowed].join(", ")}`);
+  } else {
+    console.error("[captain-start] webfetch aus (CAPTAIN_WEBFETCH_ALLOW leer)");
+  }
+
+  const child = spawn(COMMAND[0], COMMAND.slice(1), { stdio: "inherit", env: environment(process.env, enabled, { webfetch, proxy }) });
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => child.kill(sig));
   child.on("error", (e) => fail(`opencode nicht startbar: ${e.message}`));
   child.on("exit", (code, signal) => process.exit(code ?? (signal ? 128 : 1)));

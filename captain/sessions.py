@@ -53,25 +53,51 @@ def new_session_id() -> str:
     return f"ses_{uuid.uuid4().hex}"
 
 
-def environment_prompt(directory: str) -> str:
-    """Systemanweisung zur Arbeitsumgebung einer Session (mit konkretem Pfad)."""
-    return (
+def environment_prompt(directory: str, webfetch: tuple[str, ...] | list[str] = ()) -> str:
+    """Systemanweisung zur Arbeitsumgebung einer Session (mit konkretem Pfad).
+
+    ``webfetch``: kanonische Präfixe der Allowlist (``CAPTAIN_WEBFETCH_ALLOW``);
+    leer = kein Internet-Zugriff.
+    """
+    files = (
         "# Arbeitsumgebung\n"
         f"- Dein Arbeitsverzeichnis ist `{directory}`. Du darfst ausschließlich "
         "Dateien in diesem Verzeichnis lesen, anlegen, bearbeiten und durchsuchen "
         "(Tools read, write, edit, glob, grep). Zugriffe außerhalb werden abgelehnt.\n"
-        "- Du hast **keine** Shell, keinen Internet-Zugriff (kein Webfetch, keine "
-        "Websuche), keine Subagenten, Skills oder Rückfrage-Dialoge. Bitte, die so "
-        "etwas verlangen, beantwortest du ohne diese Werkzeuge oder sagst kurz, dass "
-        "es nicht geht.\n"
+    )
+    if webfetch:
+        urls = ", ".join(f"`{p}`" for p in webfetch)
+        web = (
+            "- Internet: Du hast das Tool `webfetch`, aber **nur** für diese Adressen "
+            f"und Pfade darunter: {urls} (das gilt abweichend von allgemeinen Hinweisen, "
+            "es gebe keinen Web-Zugriff). Schreibe die URL genau mit diesem Anfang "
+            "(Schema, Host in Kleinbuchstaben, kein anderer Port), z. B. "
+            f"`{webfetch[0]}/…`. Alle anderen Adressen und Weiterleitungen auf fremde "
+            "Hosts werden abgelehnt. Gib keine vertraulichen Inhalte aus dem Chat in "
+            "URLs weiter.\n"
+            "- Du hast **keine** Shell, keine Websuche, keine Subagenten, Skills oder "
+            "Rückfrage-Dialoge. Bitte, die so etwas verlangen, beantwortest du ohne "
+            "diese Werkzeuge oder sagst kurz, dass es nicht geht.\n"
+        )
+    else:
+        web = (
+            "- Du hast **keine** Shell, keinen Internet-Zugriff (kein Webfetch, keine "
+            "Websuche), keine Subagenten, Skills oder Rückfrage-Dialoge. Bitte, die so "
+            "etwas verlangen, beantwortest du ohne diese Werkzeuge oder sagst kurz, dass "
+            "es nicht geht.\n"
+        )
+    return files + web + (
         "- Anhänge aus dem Chat liegen in diesem Verzeichnis. Beim Neustart der "
         "Unterhaltung (`!neu`) wird es geleert."
     )
 
 
-def session_instructions(persona: str, directory: str) -> dict[str, str]:
+def session_instructions(
+    persona: str, directory: str, webfetch: tuple[str, ...] | list[str] = (),
+) -> dict[str, str]:
     """Systemanweisungen pro Session in Reihenfolge: Persona, dann Arbeitsumgebung."""
-    entries = {"captain-persona": persona.strip(), "captain-umgebung": environment_prompt(directory)}
+    entries = {"captain-persona": persona.strip(),
+               "captain-umgebung": environment_prompt(directory, webfetch)}
     return {k: v for k, v in entries.items() if v}
 
 

@@ -4,7 +4,7 @@
 //
 // Hier gehoeren hin: Provider, Modelle, Limits, MCP-Server und deren
 // Freigaben. Die Sicherheitsbasis (globales "* * deny", Policies gegen Shell,
-// Web, Subagenten, Skills, Rueckfragen, fremde Verzeichnisse; keine
+// Web (ausser CAPTAIN_WEBFETCH_ALLOW), Subagenten, Skills, Rueckfragen, fremde Verzeichnisse; keine
 // Projekt-Config; Session-Regeln des Bots) steckt fest im Image bzw. im Bot
 // und kann von hier aus nicht gelockert werden. Geheimnisse nie hier
 // eintragen, sondern in die .env bzw. mcp.env und per {env:NAME} einsetzen

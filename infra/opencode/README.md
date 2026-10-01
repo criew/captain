@@ -39,7 +39,9 @@ Achtung: v2-Konfiguration ist **nicht** v1-kompatibel (`providers` statt `provid
 | `Dockerfile` | `node:22-bookworm-slim` + `@opencode/cli` (npm) + ripgrep (GitHub-Release, Prüfsumme) – ohne Paketmanager der Distribution |
 | `compose.yml` | Test-Setup: Service `opencode`, Port 4096, Volumes `captain-tmp`, `opencode-data` |
 | `config/base.jsonc` | **Sicherheitsbasis** (fest im Image) → `/root/.config/opencode/opencode.jsonc` |
-| `start.mjs` | Entrypoint: prüft die Admin-Config per Allowlist, schreibt die bereinigte Kopie `/run/captain/opencode.json` (= `OPENCODE_CONFIG`), setzt `OPENCODE_CONFIG_CONTENT`/Projekt-Config-Sperre fest, reicht nur eine Umgebungs-Allowlist durch, startet `opencode serve` |
+| `start.mjs` | Entrypoint: prüft die Admin-Config per Allowlist, schreibt die bereinigte Kopie `/run/captain/opencode.json` (= `OPENCODE_CONFIG`), setzt `OPENCODE_CONFIG_CONTENT` (inkl. webfetch-Policies)/Projekt-Config-Sperre fest, reicht nur eine Umgebungs-Allowlist durch, startet `opencode serve` |
+| `egress.mjs` | Egress-Filter (HTTP-Proxy auf 127.0.0.1 im Startskript), nur aktiv mit `CAPTAIN_WEBFETCH_ALLOW` – siehe „webfetch“ |
+| `start.test.mjs`, `webfetch.test.mjs` | Node-Unit-Tests (über `tests/test_start_script.py`) |
 | `config/opencode.jsonc` | Vorlage der **Admin-Config** (Provider `llm`, MCP, Freigaben) → `/etc/captain/opencode.jsonc` (`OPENCODE_CONFIG`) und `/opt/captain/defaults/` |
 | `config/opencode.test.jsonc` | Admin-Config des Test-Setups (Ollama), per `compose.yml` eingebunden |
 | `config/AGENTS.md` | globaler Systemprompt „Captain“ → `/etc/captain/AGENTS.md` (Symlink von `/root/.config/opencode/AGENTS.md`) |
@@ -203,7 +205,6 @@ Ziel: **keine Tools außer Dateizugriff im eigenen Session-Verzeichnis**
 "permissions": [ { "action": "*", "resource": "*", "effect": "deny" } ],
 "experimental": { "policies": [   // harte Obergrenze
   { "action": "permission", "resource": "shell:*",              "effect": "deny" },
-  { "action": "permission", "resource": "webfetch:*",           "effect": "deny" },
   { "action": "permission", "resource": "websearch:*",          "effect": "deny" },
   { "action": "permission", "resource": "subagent:*",           "effect": "deny" },
   { "action": "permission", "resource": "skill:*",              "effect": "deny" },
@@ -215,7 +216,11 @@ Ziel: **keine Tools außer Dateizugriff im eigenen Session-Verzeichnis**
 
 Dazu setzt `start.mjs` `OPENCODE_CONFIG_CONTENT` mit `share: disabled`,
 `update: disable`, `websearch: false`, `lsp: false`, `formatter: false`,
-`snapshots: false` (letzte Quelle → Admin-Config kann sie nicht ändern).
+`snapshots: false` (letzte Quelle → Admin-Config kann sie nicht ändern) und
+den webfetch-Policies (`webfetch:*` deny, mit Allowlist danach die erlaubten
+Muster – siehe „webfetch“). Eine webfetch-Policy in der Basis würde jede
+Freigabe schlagen (früheste Quelle gewinnt), deshalb steht sie dort nicht; die
+Admin-Config darf `experimental` nicht setzen.
 
 ### Pro Session (Bot, `captain.opencode.session_permissions`)
 
@@ -234,8 +239,51 @@ Dazu setzt `start.mjs` `OPENCODE_CONFIG_CONTENT` mit `share: disabled`,
   // zum Schluss (überstimmt auch Freigaben der Admin-Config):
   // shell, webfetch, websearch, subagent, skill, question, execute,
   // opencode_*, external_directory → {"resource": "*", "effect": "deny"}
+  // nur mit CAPTAIN_WEBFETCH_ALLOW, je Präfix p:
+  // {"action": "webfetch", "resource": p | p + "/*", "effect": "allow"},
+  // danach webfetch deny für "*/..", "*/..?*", "*/%2e*", … und Tab/LF/CR
 ]
 ```
+
+### webfetch (Allowlist `CAPTAIN_WEBFETCH_ALLOW`)
+
+Ermittelt aus dem Binary (Tool `opencode.tool.webfetch`, Matcher, Policy-Hook)
+und belegt durch `tests/test_webfetch_integration.py` (Fake-LLM, Testserver
+mit mehreren Hostnamen):
+
+- Geprüft wird `assert({action: "webfetch", resources: [url]})` mit der
+  **rohen URL** des Modells (vorher nur `new URL(url)` und Schema http/https),
+  in Policies als `webfetch:<url>`.
+- Matcher: `\` im Wert → `/`, im Muster `*` → `.*` (auch `/`, Zeilenumbrüche),
+  `?` → **ein beliebiges Zeichen**, sonst wörtlich; Groß-/Kleinschreibung
+  zählt. `http://text-example.org/*` trifft also nicht
+  `http://text-example.org.evil.com/…`, `…@evil.com`, `https://…`, `…:8080`,
+  `HTTP://TEXT-EXAMPLE.ORG/…` und nicht `http://text-example.org` ohne `/` –
+  deshalb erlaubt ein Eintrag `p` und `p/*`. Query-Strings hinter `/` passen.
+  Ein Muster `p?*` wäre gefährlich (`?` passt auf `.` → `p.evil.com`) und
+  kommt nicht vor.
+- Ein `\` hinter dem Host (`http://text-example.org\@evil.com/`) passt auf
+  `p/*`, bleibt beim Abruf aber beim erlaubten Host (der URL-Parser liest `\`
+  ebenfalls als `/`) – getestet.
+- Der URL-Parser löst `..` (auch `%2e%2e`) auf und entfernt Tab/LF/CR –
+  deshalb verbieten Regeln und Policies das nach den Freigaben (sonst käme
+  man aus einem Pfad-Präfix heraus).
+- **Weiterleitungen**: opencode ruft per `fetch` mit `redirect: follow` ab und
+  prüft das Ziel **nicht** erneut (getestet: Weiterleitung von
+  `text-example.org` auf `evil.test` lieferte ohne Filter den fremden Inhalt).
+  Absicherung: Egress-Filter `egress.mjs`. Mit Allowlist setzt `start.mjs` für
+  opencode `HTTP(S)_PROXY=http://127.0.0.1:<port>`, `NO_PROXY` nur Loopback; der
+  Filter lässt nur Host:Port der Allowlist (bei Standardport auch 80/443
+  desselben Hosts) und die Endpunkte aus der bereinigten Admin-Config
+  (`providers.*.settings.baseURL`, `mcp.servers.*.url`), `LLM_BASE_URL`,
+  `OLLAMA_BASE_URL` und Cloud-APIs mit gesetztem Key durch, sonst `403` und
+  `[captain-egress] blockiert: host:port` im Log. Weiter geht es direkt bzw.
+  über den ursprünglichen Proxy (`HTTP(S)_PROXY`/`NO_PROXY` aus
+  `CAPTAIN_*`). Bun sendet bei HTTPS über Proxy nur `CONNECT host:port` (ohne
+  User-Agent) – eine Unterscheidung „nur webfetch filtern“ ist deshalb nicht
+  möglich, der Filter gilt für den ganzen Prozess.
+- Ohne Allowlist: kein Filter, Policy `webfetch:*` deny, Session-Regel
+  `webfetch * deny` → Tool unsichtbar, wie bisher.
 
 ### Projekt-Config im Session-Verzeichnis (Sicherheit)
 

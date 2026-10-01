@@ -22,6 +22,11 @@
 //   Treffer die Policy der FRUEHESTEN Quelle gewinnt. Die Policies hier sind
 //   damit eine harte Obergrenze, die weder die Admin-Config noch
 //   Session-Regeln aufheben koennen ("Blocked by configuration policy").
+//   Ausnahme webfetch: Seine Policies setzt start.mjs in
+//   OPENCODE_CONFIG_CONTENT ("webfetch:*" deny, bei gesetztem
+//   CAPTAIN_WEBFETCH_ALLOW danach die erlaubten URL-Praefixe). Eine
+//   webfetch-Policy hier wuerde jede dieser Freigaben schlagen; die
+//   Admin-Config darf "experimental" nicht setzen.
 // - Einzelwerte (share, snapshots, websearch, ...) nimmt opencode aus der
 //   LETZTEN Quelle, die sie setzt – deshalb stehen sie im Image als
 //   OPENCODE_CONFIG_CONTENT (siehe Dockerfile), nicht hier.
@@ -51,9 +56,9 @@
 
   "experimental": {
     // Harte Obergrenze (Policy-Hook nach den Regeln). Format "<aktion>:<ressource>".
+    // webfetch fehlt bewusst: start.mjs setzt dafuer Policies (siehe oben).
     "policies": [
       { "action": "permission", "resource": "shell:*", "effect": "deny" },
-      { "action": "permission", "resource": "webfetch:*", "effect": "deny" },
       { "action": "permission", "resource": "websearch:*", "effect": "deny" },
       { "action": "permission", "resource": "subagent:*", "effect": "deny" },
       { "action": "permission", "resource": "skill:*", "effect": "deny" },
