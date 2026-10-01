@@ -108,6 +108,7 @@ Variablen der `.env` (Details: `.env.example` und „Konfiguration“):
 | `MAX_ATTACHMENT_MB` | nein (20) | größter Anhang in MB, der geladen und an opencode gegeben wird (`0` = keine Grenze) |
 | `LOG_LEVEL` | nein (`INFO`) | Log-Level des Bots |
 | `CAPTAIN_HTTP_PROXY`, `CAPTAIN_HTTPS_PROXY`, `CAPTAIN_NO_PROXY` | nein | Proxy für ausgehende Verbindungen (siehe „Hinter einem Proxy“) |
+| `CAPTAIN_CA_FILE` | nein | Dateiname einer zusätzlichen CA (PEM) in `$CAPTAIN_HOME/config/`, z. B. Firmen-CA des LLM-Endpunkts (siehe „Hinter einem Proxy“) |
 | `MCP_…` in **`mcp.env`** | nein | Geheimnisse für MCP-Server (Vorlage `mcp.env.example`; `{env:MCP_…}` in der Config) |
 
 Der Bot bekommt die ganze `.env`. Der opencode-Container bekommt davon nur
@@ -153,6 +154,19 @@ einem Kanal `@captain Hallo` (Antwort als Thread unter dem Post), dort
   auflösbaren Namen angeben. Ziele, die direkt erreichbar sind (internes
   Mattermost, vLLM/Open WebUI), in `CAPTAIN_NO_PROXY` eintragen; die interne
   Verbindung Bot → opencode läuft immer direkt.
+- **Eigene CA:** Meldet das opencode-Log `UNABLE_TO_VERIFY_LEAF_SIGNATURE`
+  bzw. `unable to verify the first certificate`, ist der LLM-Endpunkt (oder ein
+  TLS-aufbrechender Proxy) mit einer internen CA signiert. Die CA als PEM nach
+  `$CAPTAIN_HOME/config/` legen und in der `.env` `CAPTAIN_CA_FILE=<datei>`
+  setzen, dann `docker compose -f compose.deploy.yml up -d`. Am einfachsten
+  das CA-Bündel des Hosts übernehmen, dem der Host ja vertraut:
+  ```sh
+  # SLES: /var/lib/ca-certificates/ca-bundle.pem, Debian/Ubuntu: /etc/ssl/certs/ca-certificates.crt,
+  # RHEL: /etc/pki/tls/certs/ca-bundle.crt
+  sudo cp /var/lib/ca-certificates/ca-bundle.pem /opt/captain/config/ca.pem
+  ```
+  Die Datei ergänzt die eingebauten CAs (`NODE_EXTRA_CA_CERTS`), ersetzt sie
+  nicht.
 - **DNS in Containern prüfen:** `docker run --rm busybox nslookup <mattermost-host>`.
   Meldet das `no servers could be reached`, erreichen Container keinen
   DNS-Server (typisch bei `systemd-resolved` auf dem Host + gesperrtem
