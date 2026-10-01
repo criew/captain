@@ -11,6 +11,11 @@ services:
     env_file:
       - path: .env
         required: true
+    environment:
+      # Geteiltes Verzeichnis (README: „Geteiltes Verzeichnis (nur lesen)“),
+      # aus der Shell; leer = aus. Der Wert muss ein Linux-Pfad sein (start.mjs
+      # prüft ihn: absolut, kein Laufwerksbuchstabe).
+      CAPTAIN_SHARED_DIR: ${CAPTAIN_SHARED_DIR:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -22,7 +27,10 @@ services:
       - opencode-data:/root/.local/share/opencode
       # Admin-Config des Test-Setups (Ollama); Sicherheitsbasis steckt im Image.
       - ./config/opencode.test.jsonc:/etc/captain/opencode.jsonc:ro
+      # Geteiltes Verzeichnis, schreibgeschützt; ohne Variable ein leeres Volume
+      - ${CAPTAIN_SHARED_DIR:-shared-leer}:/shared:ro
 
 volumes:
   captain-tmp:
   opencode-data:
+  shared-leer:

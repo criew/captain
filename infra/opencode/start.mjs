@@ -27,11 +27,18 @@
 // wird hier zu experimental.policies in OPENCODE_CONFIG_CONTENT (harte
 // Obergrenze, siehe webfetchPolicies) und – wenn gesetzt – zu einem
 // Egress-Filter (egress.mjs), weil opencode Weiterleitungen ungeprueft folgt.
+//
+// Geteiltes Verzeichnis: CAPTAIN_SHARED_DIR (Host-Pfad, leer = aus) gibt
+// /shared (dort :ro eingebunden) zum Lesen frei – als Policies
+// (external_directory nur /shared/*, edit dort verboten) und mit einer
+// Pruefung von /shared beim Start und laufend (shared.mjs: keine Symlinks
+// u. a., sonst startet bzw. endet opencode).
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { allowedTargets, startGuard } from "./egress.mjs";
+import { checkMount, normalizeSharedDir, scan, SCAN_INTERVAL_MS, scanLimits, SHARED_ENV, SHARED_MOUNT, sharedPolicies } from "./shared.mjs";
 
 export const SOURCE = "/etc/captain/opencode.jsonc";
 export const TARGET = "/run/captain/opencode.json";
@@ -337,7 +344,7 @@ const PASS_RE = /^[A-Z0-9_]+_API_KEY$/;
 // HTTP(S)_PROXY/NO_PROXY.
 const LOOPBACK = "localhost,127.0.0.1,::1";
 
-export function environment(env, enabled = [NO_PROVIDER], { webfetch = [], proxy = null } = {}) {
+export function environment(env, enabled = [NO_PROVIDER], { webfetch = [], proxy = null, shared = false } = {}) {
   const out = {};
   for (const [k, v] of Object.entries(env)) {
     if (PASS.has(k) || (PASS_RE.test(k) && !REF_NEVER.test(k))) out[k] = v;
@@ -352,7 +359,7 @@ export function environment(env, enabled = [NO_PROVIDER], { webfetch = [], proxy
     OPENCODE_CONFIG_CONTENT: JSON.stringify({
       ...FIXED_CONFIG,
       enabled_providers: enabled,
-      experimental: { policies: webfetchPolicies(webfetch) },
+      experimental: { policies: [...webfetchPolicies(webfetch), ...sharedPolicies(shared)] },
     }),
   };
 }
@@ -405,10 +412,48 @@ async function main() {
     console.error("[captain-start] webfetch aus (CAPTAIN_WEBFETCH_ALLOW leer)");
   }
 
-  const child = spawn(COMMAND[0], COMMAND.slice(1), { stdio: "inherit", env: environment(process.env, enabled, { webfetch, proxy }) });
+  let shared = null;
+  let limits;
+  try {
+    shared = normalizeSharedDir(process.env[SHARED_ENV], process.env.CAPTAIN_HOME);
+    limits = scanLimits(process.env);
+    if (shared) checkMount(SHARED_MOUNT);
+  } catch (e) {
+    fail(e.message);
+  }
+  if (shared) {
+    const problems = await scan(SHARED_MOUNT, limits);
+    if (problems.length) fail(`${SHARED_MOUNT} (${SHARED_ENV}=${shared}) unzulaessig: ${problems.join("; ")}`);
+    console.error(`[captain-start] geteiltes Verzeichnis ${shared} -> ${SHARED_MOUNT} (nur lesen, Pruefung alle ${SCAN_INTERVAL_MS / 1000} s)`);
+  } else {
+    console.error(`[captain-start] geteiltes Verzeichnis aus (${SHARED_ENV} leer)`);
+  }
+
+  const child = spawn(COMMAND[0], COMMAND.slice(1), { stdio: "inherit", env: environment(process.env, enabled, { webfetch, proxy, shared: !!shared }) });
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => child.kill(sig));
   child.on("error", (e) => fail(`opencode nicht startbar: ${e.message}`));
   child.on("exit", (code, signal) => process.exit(code ?? (signal ? 128 : 1)));
+
+  // Laufende Pruefung: Aenderungen unter /shared sind ohne Neustart sichtbar –
+  // taucht ein Symlink o. ae. auf, wird opencode beendet (fail closed; der
+  // Neustart scheitert dann an der Pruefung oben, bis der Admin aufraeumt).
+  if (shared) {
+    let busy = false;
+    setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const problems = await scan(SHARED_MOUNT, limits);
+        if (problems.length) {
+          console.error(`[captain-start] FEHLER: ${SHARED_MOUNT} unzulaessig – opencode wird beendet: ${problems.join("; ")}`);
+          child.kill("SIGKILL");
+          process.exit(1);
+        }
+      } finally {
+        busy = false;
+      }
+    }, SCAN_INTERVAL_MS).unref();
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

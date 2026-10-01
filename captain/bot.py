@@ -832,7 +832,8 @@ class Bot:
         os.makedirs(directory, exist_ok=True)
         created = self.oc.create_session(
             directory, title=f"Mattermost {key}",
-            permissions=session_permissions(directory, self.cfg.webfetch_allow), session_id=sid,
+            permissions=session_permissions(directory, self.cfg.webfetch_allow, self.cfg.shared),
+            session_id=sid,
         )
         if created != sid:
             log.warning("%s: opencode vergab %s statt %s", key, created, sid)
@@ -844,9 +845,12 @@ class Bot:
         log.info("%s: neue opencode-Session %s in %s", key, sid, directory)
         return sid, directory, True
 
+    def _instructions(self, directory: str) -> dict[str, str]:
+        return session_instructions(self.cfg.system_prompt, directory, self.cfg.webfetch_allow, self.cfg.shared)
+
     def _set_instructions(self, key: str, sid: str, directory: str) -> bool:
         try:
-            self.oc.set_instructions(sid, session_instructions(self.cfg.system_prompt, directory, self.cfg.webfetch_allow))
+            self.oc.set_instructions(sid, self._instructions(directory))
             return True
         except OpencodeError as e:  # Permissions greifen trotzdem
             log.warning("%s: Systemanweisungen für %s nicht gesetzt: %s", key, sid, e)
@@ -867,7 +871,7 @@ class Bot:
         if not new and self._set_instructions(key, sid, directory):
             log.info("%s: Systemanweisungen für %s nachgetragen", key, sid)
             return ""
-        body = "\n\n".join(session_instructions(self.cfg.system_prompt, directory, self.cfg.webfetch_allow).values())
+        body = "\n\n".join(self._instructions(directory).values())
         return f"[Systemhinweise für diese Unterhaltung]\n{body}\n[Ende der Systemhinweise]\n\n"
 
     def _user(self, user_id: str) -> dict:

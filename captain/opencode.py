@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from .shared import session_rules as shared_rules
 from .webfetch import session_rules as webfetch_rules
 
 log = logging.getLogger(__name__)
@@ -320,8 +321,10 @@ DENIED_ACTIONS = (
 )
 
 
-def session_permissions(directory: str, webfetch: tuple[str, ...] | list[str] = ()) -> list[dict]:
-    """Session-Regeln: nur Dateizugriff in ``directory`` (plus webfetch-Allowlist).
+def session_permissions(
+    directory: str, webfetch: tuple[str, ...] | list[str] = (), shared: bool = False,
+) -> list[dict]:
+    """Session-Regeln: nur Dateizugriff in ``directory`` (plus webfetch-Allowlist, ``/shared``).
 
     opencode wertet Agent-Defaults, globale Config und dann diese Regeln aus;
     die letzte passende gewinnt. Global ist alles verboten, hier wird nur
@@ -340,6 +343,10 @@ def session_permissions(directory: str, webfetch: tuple[str, ...] | list[str] = 
     Freigaben ``<präfix>`` und ``<präfix>/*`` und danach Verbote für
     ``..``-Segmente und Steuerzeichen – so überstimmt keine Regel der
     Admin-Config die Allowlist, in keine Richtung.
+
+    ``shared``: geteiltes Verzeichnis an (``CAPTAIN_SHARED_DIR``). Dann folgen
+    zum Schluss :func:`captain.shared.session_rules`: ``external_directory``
+    und ``read`` für ``/shared`` und darunter erlaubt, ``edit`` dort verboten.
     """
     root = directory.rstrip("/")
     rules = [{"action": a, "resource": "*", "effect": "allow"} for a in FILE_ACTIONS]
@@ -356,6 +363,7 @@ def session_permissions(directory: str, webfetch: tuple[str, ...] | list[str] = 
                 rules.append({"action": action, "resource": pattern, "effect": "deny"})
     rules += [{"action": a, "resource": "*", "effect": "deny"} for a in DENIED_ACTIONS]
     rules += webfetch_rules(webfetch)
+    rules += shared_rules(shared)
     return rules
 
 

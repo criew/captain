@@ -780,6 +780,26 @@ def test_new_session_gets_dir_permissions_and_instructions(env):
     assert directory in entries["captain-umgebung"]
 
 
+def test_shared_dir_rules_and_hint(env):
+    """CAPTAIN_SHARED_DIR: /shared lesbar (Regeln hinten), Hinweis im Systemprompt."""
+    b, mm, oc, store = env
+    b.on_post(post("Hallo"))
+    wait_idle(b)
+    off = oc.create_calls[0]["permissions"]
+    assert not any("/shared" in r["resource"] for r in off)
+    assert "/shared" not in oc.instructions["ses_1"]["captain-umgebung"]
+    b.cfg = Config(**{**b.cfg.__dict__, "shared_dir": "/srv/captain-shared"})
+    b.on_post(post("Hallo", ch="c2"))
+    wait_idle(b)
+    rules = oc.create_calls[1]["permissions"]
+    shared = rules[len(off):]
+    assert shared[0] == {"action": "external_directory", "resource": "/shared/*", "effect": "allow"}
+    assert all(r["action"] in ("external_directory", "read", "edit") for r in shared)
+    assert rules[-1] == {"action": "edit", "resource": "/shared/*", "effect": "deny"}
+    assert "`/shared`" in oc.instructions["ses_2"]["captain-umgebung"]
+    assert "/srv/captain-shared" not in oc.instructions["ses_2"]["captain-umgebung"]  # Host-Pfad bleibt intern
+
+
 def test_instructions_failure_does_not_block(env):
     b, mm, oc, store = env
     oc.instructions_error = OpencodeError("HTTP 404")

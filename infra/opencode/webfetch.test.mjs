@@ -7,6 +7,7 @@ import http from "node:http";
 import { test } from "node:test";
 
 import { allowedTargets, bypass, createGuard, key, startGuard, target, upstream } from "./egress.mjs";
+import { sharedPolicies } from "./shared.mjs";
 import { environment, normalizeWebfetchEntry, parseJsonc, parseWebfetchAllow, webfetchPatterns, webfetchPolicies } from "./start.mjs";
 
 const CASES = JSON.parse(fs.readFileSync(new URL("../../tests/data/webfetch_allow.json", import.meta.url), "utf8"));
@@ -37,10 +38,10 @@ test("Normalisierung: gemeinsame Testfaelle (wie captain/webfetch.py)", () => {
   assert.equal(normalizeWebfetchEntry("HTTPS://A.Example:443/X/"), "https://a.example/X");
 });
 
-test("Sicherheitsbasis enthaelt keine webfetch-Policy (sonst gewaenne sie gegen jede Freigabe)", () => {
+test("Sicherheitsbasis enthaelt keine webfetch-/external_directory-Policy (sonst gewaenne sie gegen jede Freigabe)", () => {
   const policies = BASE.experimental.policies.map((p) => p.resource);
-  assert.ok(!policies.some((r) => r.startsWith("webfetch")), policies);
-  for (const r of ["shell:*", "websearch:*", "subagent:*", "skill:*", "question:*", "external_directory:*", "opencode_*"]) {
+  assert.ok(!policies.some((r) => r.startsWith("webfetch") || r.startsWith("external_directory")), policies);
+  for (const r of ["shell:*", "websearch:*", "subagent:*", "skill:*", "question:*", "opencode_*"]) {
     assert.ok(policies.includes(r), r);
   }
 });
@@ -63,7 +64,7 @@ test("Policies: Allowlist als Obergrenze, Angriffsmuster abgelehnt", () => {
 test("Policies ohne Allowlist: webfetch komplett gesperrt", () => {
   assert.deepEqual(webfetchPolicies([]), [{ action: "permission", resource: "webfetch:*", effect: "deny" }]);
   const env = environment({}, ["llm"]);
-  assert.deepEqual(content(env).experimental.policies, webfetchPolicies([]));
+  assert.deepEqual(content(env).experimental.policies, [...webfetchPolicies([]), ...sharedPolicies(false)]);
   assert.ok(blocked([BASE, {}, content(env)], "webfetch", "http://text-example.org/"));
 });
 
