@@ -47,22 +47,58 @@ SYSTEM_DIRS = frozenset({
     "/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib32", "/lib64", "/media", "/mnt",
     "/opt", "/proc", "/root", "/run", "/sbin", "/srv", "/sys", "/tmp", "/usr", "/var",
 })
-# Git-Innenleben (``.git`` als Verzeichnis oder Datei, in jeder Tiefe): nie
-# lesbar – ``.git/config`` kann Zugangsdaten in Remote-URLs enthalten. ``*``
-# passt auch auf ``/``, ``*/.git`` deckt also jede Tiefe ab, ``a.git`` oder
-# ``.github`` aber nicht.
-GIT_PATTERNS = (f"{MOUNT}/.git", f"{MOUNT}/.git/*", f"{MOUNT}/*/.git", f"{MOUNT}/*/.git/*")
+# Git-Innenleben in jeder Tiefe: ``.git`` und Bare-/Mirror-Repos (``x.git``),
+# als Verzeichnis oder Datei – ``config`` kann Zugangsdaten in Remote-URLs
+# enthalten. ``*`` passt auch auf ``/`` und auf nichts, ``*.git`` deckt also
+# ``/shared/.git`` und ``/shared/a/b.git`` ab, ``.github`` aber nicht. Alle
+# Schreibweisen von ``git`` (case-insensitive Dateisysteme wie CIFS lösen
+# ``.GIT`` zu ``.git`` auf; die Muster unterscheiden Groß/Klein).
+_GIT = [a + b + c for a in "gG" for b in "iI" for c in "tT"]
+GIT_PATTERNS = tuple(p for g in _GIT for p in (f"{MOUNT}/*.{g}", f"{MOUNT}/*.{g}/*"))
+# Dateien mit Zugangsdaten: nie lesbar (start.mjs lehnt sie unter /shared
+# zusätzlich ab – grep würde sie sonst durchsuchen).
+SECRET_NAMES = (".git-credentials", ".netrc", "_netrc")
+SECRET_PATTERNS = tuple(p for n in SECRET_NAMES for p in (f"{MOUNT}/{n}", f"{MOUNT}/*/{n}"))
+# Unter CAPTAIN_HOME ist nur dieses erste Segment erlaubt (config, data,
+# sessions, opencode und alles Künftige nicht).
+HOME_SUBDIR = "shared"
 
 # Doppelpunkt trennt in Compose Quelle/Ziel/Optionen, "$" wäre eine
 # Compose-Variable; Steuerzeichen und "\\" haben in einem Pfad nichts verloren.
 _FORBIDDEN = re.compile(r"[:$\\\x00-\x1f\x7f]")
 
 
-def normalize(value: str | None) -> str | None:
+def _segments(path: str) -> list[str]:
+    return [s for s in path.split("/") if s]
+
+
+def check_home(path: str | None, home: str | None) -> None:
+    """``path`` gegen ``CAPTAIN_HOME`` prüfen (segmentweise, exakt).
+
+    Erlaubt ist nur ``<home>/shared`` oder darunter; verboten sind ``<home>``
+    selbst, alle Vorfahren und jedes andere erste Segment. ``home`` leer =
+    keine Prüfung (Test-Setup); nicht absolut → Fehler.
+    """
+    raw = (home or "").strip()
+    if not path or not raw:
+        return
+    if not raw.startswith("/") or any(s in (".", "..") for s in _segments(raw)):
+        raise ValueError(f"CAPTAIN_HOME muss ein absoluter Pfad ohne '.'/'..' sein: {raw!r}")
+    h, p = _segments(raw), _segments(path)
+    if p[: len(h)] != h:
+        if h[: len(p)] == p:
+            raise ValueError(f"{ENV}: {path} enthält CAPTAIN_HOME ({raw}) – dort liegen Sessions und Datenbank")
+        return
+    if len(p) == len(h) or p[len(h)] != HOME_SUBDIR:
+        raise ValueError(f"{ENV}: unter CAPTAIN_HOME ({raw}) ist nur {raw.rstrip('/')}/{HOME_SUBDIR}[/…] erlaubt: {path}")
+
+
+def normalize(value: str | None, home: str | None = None) -> str | None:
     """Host-Pfad prüfen → kanonischer Pfad oder ``None`` (Feature aus).
 
     Erlaubt: absoluter POSIX-Pfad ohne ``.``/``..``-Segmente, nicht ``/`` und
-    kein Systemverzeichnis wie ``/etc``; ein ``/`` am Ende fällt weg. Wirft
+    kein Systemverzeichnis wie ``/etc``; ein ``/`` am Ende fällt weg. Mit
+    ``home`` (``CAPTAIN_HOME``) zusätzlich :func:`check_home`. Wirft
     ``ValueError`` – lieber nicht starten als etwas anderes freigeben.
     """
     raw = (value or "").strip()
@@ -81,6 +117,7 @@ def normalize(value: str | None) -> str | None:
         raise ValueError(f"{ENV}: Pfad ohne '.', '..' und leere Segmente: {raw!r}")
     if path in SYSTEM_DIRS:
         raise ValueError(f"{ENV}: {path} ist die Wurzel oder ein Systemverzeichnis – eigenes Unterverzeichnis nehmen: {raw!r}")
+    check_home(path, home)
     return path
 
 
@@ -90,9 +127,10 @@ def session_rules(enabled: bool) -> list[dict]:
     Gibt ``external_directory`` und ``read`` für :data:`MOUNT` und alles
     darunter frei (``glob``/``grep`` prüfen das Muster, sind schon erlaubt;
     ihren Suchpfad deckt ``external_directory`` ab). Danach verboten:
-    ``.git`` in jeder Tiefe (:data:`GIT_PATTERNS`, für ``external_directory``
-    und ``read``; ripgrep lässt ``.git`` bei glob/grep ohnehin aus) und
-    ``edit`` unter :data:`MOUNT`.
+    ``.git``/``*.git`` in jeder Tiefe (:data:`GIT_PATTERNS`, für
+    ``external_directory`` und ``read``; ripgrep lässt ``.git`` bei glob/grep
+    ohnehin aus), Zugangsdaten-Dateien (:data:`SECRET_PATTERNS`) und ``edit``
+    unter :data:`MOUNT`.
     """
     if not enabled:
         return []
@@ -103,6 +141,7 @@ def session_rules(enabled: bool) -> list[dict]:
         {"action": "read", "resource": inside, "effect": "allow"},
         *({"action": a, "resource": p, "effect": "deny"}
           for a in ("external_directory", "read") for p in GIT_PATTERNS),
+        *({"action": "read", "resource": p, "effect": "deny"} for p in SECRET_PATTERNS),
         {"action": "edit", "resource": MOUNT, "effect": "deny"},
         {"action": "edit", "resource": inside, "effect": "deny"},
     ]

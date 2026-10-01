@@ -236,7 +236,7 @@ def test_read_glob_grep_allowed_write_and_escapes_denied(volume, stack):
 
     # .git gesperrt, auch über Umwege und als Suchpfad von glob/grep
     for path in ("/shared/repo/.git/config", "/shared/repo/.git", "/shared/repo/./.git/config",
-                 "/shared/sub/../repo/.git/config"):
+                 "/shared/sub/../repo/.git/config", "/shared/repo/.GIT/config", "/shared/.netrc"):
         answer = read(s, path)
         assert "TOKEN-123" not in answer and "permission.rejected" in answer, (path, answer)
     for tool, args in (("grep", {"pattern": "TOKEN", "path": "/shared/repo/.git"}),
@@ -303,7 +303,9 @@ def test_without_variable_no_access(volume, stack):
     "ln -s /root/.local/share/opencode /w/sub/db",
     "ln /w/handbuch.txt /w/hart.txt",
     "mkfifo /w/fifo",
-], ids=["passwd", "sessions", "relativ", "opencode-db", "hardlink", "fifo"])
+    "mkdir -p /w/m.git/objects /w/m.git/refs && echo ref > /w/m.git/HEAD",
+    "echo 'machine x password y' > /w/sub/.netrc",
+], ids=["passwd", "sessions", "relativ", "opencode-db", "hardlink", "fifo", "bare-repo", "netrc"])
 def test_symlinks_and_special_files_block_start(tmp_path, llm, volume, bad):
     volume.sh(bad)
     err = start_fails(tmp_path, llm, mount=f"{volume.name}:/shared:ro")
@@ -349,7 +351,8 @@ def test_symlink_at_runtime_stops_opencode(volume, stack):
 
 
 @pytest.mark.parametrize("value", ["shared", "./shared", "/", "/etc", "/srv", "/srv/../etc", "/srv//x",
-                                   "C:/shared", "/srv/a:b", "/opt/captain", "/opt/captain/shared", "/opt"])
+                                   "C:/shared", "/srv/a:b", "/opt/captain", "/opt/captain/sharedX",
+                                   "/opt/captain/config", "/opt/captain/sessions/x", "/opt"])
 def test_invalid_variable_fails_closed(tmp_path, llm, volume, value):
     err = start_fails(tmp_path, llm, shared=value, mount=f"{volume.name}:/shared:ro")
     assert "CAPTAIN_SHARED_DIR" in err, err
@@ -384,3 +387,24 @@ def test_mount_source_may_be_symlink(stack):
         assert docker("exec", s.name, "stat", "-c", "%F", "/shared") == "directory"
     finally:
         docker("run", "--rm", *host, f"rm -rf /host-tmp/captain-ziel-{tag} /host-tmp/captain-link-{tag}", check=False)
+
+
+def test_mountpoint_below_shared_fails_closed(tmp_path, llm, volume):
+    """Bind-Mount unter dem geteilten Verzeichnis (z. B. sessions/<id>): anderes Dateisystem."""
+    other = Volume()
+    try:
+        err = start_fails(tmp_path, llm, mount=f"{volume.name}:/shared:ro", extra=("-v", f"{other.name}:/shared/sub:ro"))
+        assert "/shared/sub: Mountpoint" in err, err
+    finally:
+        other.close()
+
+
+def test_scan_limit_fails_closed(tmp_path, llm, volume):
+    err = start_fails(tmp_path, llm, mount=f"{volume.name}:/shared:ro", extra=("-e", "CAPTAIN_SHARED_MAX_ENTRIES=3"))
+    assert "mehr als 3 Eintraege" in err and "CAPTAIN_SHARED_MAX_ENTRIES" in err, err
+
+
+def test_home_shared_subdir_allowed(volume, stack):
+    """CAPTAIN_SHARED_DIR=<CAPTAIN_HOME>/shared/… ist erlaubt (Container bekommt CAPTAIN_HOME=/opt/captain)."""
+    s = stack(shared="/opt/captain/shared/infos", mount=f"{volume.name}:/shared:ro")
+    assert "Stichwort" in read(s, "/shared/handbuch.txt")

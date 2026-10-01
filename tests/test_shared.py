@@ -42,6 +42,15 @@ def test_normalize_valid(case):
     assert shared.normalize(case["input"]) == case["path"]
 
 
+@pytest.mark.parametrize("case", CASES["home"], ids=lambda c: f"{c['home']}|{c['path']}")
+def test_home_allowlist(case):
+    if case["ok"]:
+        assert shared.normalize(case["path"], case["home"]) == case["path"].rstrip("/")
+    else:
+        with pytest.raises(ValueError, match="CAPTAIN_SHARED_DIR|CAPTAIN_HOME"):
+            shared.normalize(case["path"], case["home"])
+
+
 @pytest.mark.parametrize("value", CASES["invalid"])
 def test_normalize_invalid(value):
     with pytest.raises(ValueError, match="CAPTAIN_SHARED_DIR"):
@@ -57,6 +66,14 @@ def test_config():
     for bad in ("relativ", "/", "/etc", "/srv/../etc"):
         with pytest.raises(config.ConfigError, match="CAPTAIN_SHARED_DIR"):
             config.load(env={**env, "CAPTAIN_SHARED_DIR": bad})
+    # CAPTAIN_HOME: nur <home>/shared[/…] – die Prüfung läuft auch im Bot
+    home = {**env, "CAPTAIN_HOME": "/opt/captain"}
+    assert config.load(env={**home, "CAPTAIN_SHARED_DIR": "/opt/captain/shared/infos"}).shared
+    for bad in ("/opt/captain", "/opt/captain/config", "/opt/captain/sharedX"):
+        with pytest.raises(config.ConfigError, match="CAPTAIN_HOME"):
+            config.load(env={**home, "CAPTAIN_SHARED_DIR": bad})
+    with pytest.raises(config.ConfigError, match="CAPTAIN_HOME"):
+        config.load(env={**env, "CAPTAIN_HOME": "opt/captain", "CAPTAIN_SHARED_DIR": "/srv/x"})
 
 
 @pytest.mark.parametrize("admin", [
@@ -71,8 +88,8 @@ def test_rules_read_only_below_shared(admin):
     for path, is_dir in (("/shared", True), ("/shared/", True), ("/shared/a.txt", False),
                          ("/shared/sub/dir/b.md", False), ("/shared/mit leer.txt", False),
                          ("../../../shared/a.txt", False), ("/shared/sub/../a.txt", False),
-                         ("/shared/repo/.github/x.yml", False), ("/shared/a.git/x", False),
-                         ("/shared/.gitignore", False), ("notiz.txt", False)):
+                         ("/shared/repo/.github/x.yml", False), ("/shared/a.gitx/y", False),
+                         ("/shared/.gitignore", False), ("/shared/netrc.md", False), ("notiz.txt", False)):
         assert access(rules, path, is_dir) == "allow", path
     for path, is_dir in (("/shared/../etc/passwd", False), ("/sharedX/a.txt", False), ("/shared-x/a", False),
                          ("/SHARED/a.txt", False), ("/Shared/a.txt", False), ("/etc/passwd", False),
@@ -81,7 +98,11 @@ def test_rules_read_only_below_shared(admin):
                          ("/root/.local/share/opencode/opencode.db", False),
                          ("/shared/.git/config", False), ("/shared/.git", True),
                          ("/shared/repo/.git/config", False), ("/shared/repo/.git", True),
-                         ("/shared/a/b/c/.git/objects/x", False), ("/shared/repo/.git", False)):
+                         ("/shared/a/b/c/.git/objects/x", False), ("/shared/repo/.git", False),
+                         ("/shared/repo/.GIT/config", False), ("/shared/repo/.Git", True),
+                         ("/shared/mirror.git/config", False), ("/shared/a/infos.git", True),
+                         ("/shared/.netrc", False), ("/shared/a/.netrc", False), ("/shared/_netrc", False),
+                         ("/shared/.git-credentials", False), ("/shared/a/b/.git-credentials", False)):
         assert access(rules, path, is_dir) == "deny", path
     # schreiben nie: edit prüft den absoluten Pfad (nach external_directory)
     for path in ("/shared", "/shared/a.txt", "/shared/sub/neu.md"):

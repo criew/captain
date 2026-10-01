@@ -27,7 +27,7 @@ REQUIRED = ("MM_URL", "MM_BOT_TOKEN", "OPENCODE_URL")
 OPTIONAL = (
     "OPENCODE_PASSWORD", "OPENCODE_MODEL", "OPENCODE_VARIANT",
     "CAPTAIN_SYSTEM_PROMPT", "CAPTAIN_SYSTEM_PROMPT_FILE", "CAPTAIN_WEBFETCH_ALLOW",
-    "CAPTAIN_SHARED_DIR",
+    "CAPTAIN_SHARED_DIR", "CAPTAIN_HOME",
 )
 DEFAULTS = {
     "SESSIONS_DIR": "/tmp/captain",
@@ -165,9 +165,9 @@ def _webfetch(value) -> tuple[str, ...]:
         raise ConfigError(str(e)) from None
 
 
-def _shared(value) -> str | None:
+def _shared(value, home) -> str | None:
     try:
-        return shared.normalize(None if value is None else str(value))
+        return shared.normalize(None if value is None else str(value), None if home is None else str(home))
     except ValueError as e:
         raise ConfigError(str(e)) from None
 
@@ -216,5 +216,5 @@ def load(path: str | None = None, env: Mapping[str, str] | None = None) -> Confi
         history_max_posts=_count(values, "HISTORY_MAX_POSTS"),
         history_max_chars=_count(values, "HISTORY_MAX_CHARS"),
         webfetch_allow=_webfetch(values.get("CAPTAIN_WEBFETCH_ALLOW")),
-        shared_dir=_shared(values.get("CAPTAIN_SHARED_DIR")),
+        shared_dir=_shared(values.get("CAPTAIN_SHARED_DIR"), values.get("CAPTAIN_HOME")),
     )

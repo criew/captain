@@ -38,7 +38,7 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { allowedTargets, startGuard } from "./egress.mjs";
-import { checkHomeOverlap, checkMount, normalizeSharedDir, scan, SCAN_INTERVAL_MS, SHARED_ENV, SHARED_MOUNT, sharedPolicies } from "./shared.mjs";
+import { checkMount, normalizeSharedDir, scan, SCAN_INTERVAL_MS, scanLimits, SHARED_ENV, SHARED_MOUNT, sharedPolicies } from "./shared.mjs";
 
 export const SOURCE = "/etc/captain/opencode.jsonc";
 export const TARGET = "/run/captain/opencode.json";
@@ -413,15 +413,16 @@ async function main() {
   }
 
   let shared = null;
+  let limits;
   try {
-    shared = normalizeSharedDir(process.env[SHARED_ENV]);
-    checkHomeOverlap(shared, process.env.CAPTAIN_HOME);
+    shared = normalizeSharedDir(process.env[SHARED_ENV], process.env.CAPTAIN_HOME);
+    limits = scanLimits(process.env);
     if (shared) checkMount(SHARED_MOUNT);
   } catch (e) {
     fail(e.message);
   }
   if (shared) {
-    const problems = await scan(SHARED_MOUNT);
+    const problems = await scan(SHARED_MOUNT, limits);
     if (problems.length) fail(`${SHARED_MOUNT} (${SHARED_ENV}=${shared}) unzulaessig: ${problems.join("; ")}`);
     console.error(`[captain-start] geteiltes Verzeichnis ${shared} -> ${SHARED_MOUNT} (nur lesen, Pruefung alle ${SCAN_INTERVAL_MS / 1000} s)`);
   } else {
@@ -442,7 +443,7 @@ async function main() {
       if (busy) return;
       busy = true;
       try {
-        const problems = await scan(SHARED_MOUNT);
+        const problems = await scan(SHARED_MOUNT, limits);
         if (problems.length) {
           console.error(`[captain-start] FEHLER: ${SHARED_MOUNT} unzulaessig – opencode wird beendet: ${problems.join("; ")}`);
           child.kill("SIGKILL");

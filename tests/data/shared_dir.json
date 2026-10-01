@@ -1,15 +1,42 @@
 {
-  "_comment": "Gemeinsame Testfaelle fuer CAPTAIN_SHARED_DIR: captain/shared.py (tests/test_shared.py) und infra/opencode/shared.mjs (shared.test.mjs) muessen gleich pruefen.",
+  "_comment": "Gemeinsame Testfaelle fuer CAPTAIN_SHARED_DIR: captain/shared.py (tests/test_shared.py) und infra/opencode/shared.mjs (shared.test.mjs) muessen gleich pruefen. home: Pruefung gegen CAPTAIN_HOME (nur <home>/shared[/…]; leeres home = keine Pruefung).",
   "valid": [
-    { "input": "/srv/captain-shared", "path": "/srv/captain-shared" },
-    { "input": " /srv/captain-shared/ ", "path": "/srv/captain-shared" },
-    { "input": "/srv/captain-shared//", "path": "/srv/captain-shared" },
-    { "input": "/data/Team Infos/wiki", "path": "/data/Team Infos/wiki" },
-    { "input": "/opt/infos", "path": "/opt/infos" },
-    { "input": "/home/admin/captain-infos", "path": "/home/admin/captain-infos" },
-    { "input": "/a", "path": "/a" },
-    { "input": "", "path": null },
-    { "input": "   ", "path": null }
+    {
+      "input": "/srv/captain-shared",
+      "path": "/srv/captain-shared"
+    },
+    {
+      "input": " /srv/captain-shared/ ",
+      "path": "/srv/captain-shared"
+    },
+    {
+      "input": "/srv/captain-shared//",
+      "path": "/srv/captain-shared"
+    },
+    {
+      "input": "/data/Team Infos/wiki",
+      "path": "/data/Team Infos/wiki"
+    },
+    {
+      "input": "/opt/infos",
+      "path": "/opt/infos"
+    },
+    {
+      "input": "/home/admin/captain-infos",
+      "path": "/home/admin/captain-infos"
+    },
+    {
+      "input": "/a",
+      "path": "/a"
+    },
+    {
+      "input": "",
+      "path": null
+    },
+    {
+      "input": "   ",
+      "path": null
+    }
   ],
   "invalid": [
     "shared",
@@ -39,5 +66,127 @@
     "/srv/a\nb",
     "/srv/a\tb",
     "/srv/ä"
+  ],
+  "home": [
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/shared",
+      "ok": true
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/shared/",
+      "ok": true
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/shared/infos",
+      "ok": true
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/shared/infos/wiki",
+      "ok": true
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain-shared",
+      "ok": true
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captainX/shared",
+      "ok": true
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/srv/captain-shared",
+      "ok": true
+    },
+    {
+      "home": "/opt/captain/",
+      "path": "/opt/captain/shared/infos",
+      "ok": true
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/sharedX",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/Shared",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/config",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/data",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/sessions",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/sessions/ses_x",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/opencode",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt/captain/kuenftig/shared",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain",
+      "path": "/opt",
+      "ok": false
+    },
+    {
+      "home": "/opt/captain/",
+      "path": "/opt/captain/config",
+      "ok": false
+    },
+    {
+      "home": "/srv/data/captain",
+      "path": "/srv/data",
+      "ok": false
+    },
+    {
+      "home": "/srv/data/captain",
+      "path": "/srv/data/captain/shared/x",
+      "ok": true
+    },
+    {
+      "home": "relativ/captain",
+      "path": "/srv/captain-shared",
+      "ok": false
+    },
+    {
+      "home": "/opt/../captain",
+      "path": "/srv/captain-shared",
+      "ok": false
+    },
+    {
+      "home": "",
+      "path": "/opt/captain/config",
+      "ok": true
+    }
   ]
 }

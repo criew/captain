@@ -47,8 +47,11 @@ services:
       - -c
       - |
         set -e
-        mkdir -p /home/captain/config /home/captain/data /home/captain/sessions /home/captain/opencode
+        mkdir -p /home/captain/config /home/captain/data /home/captain/sessions /home/captain/opencode /home/captain/shared
         chmod 700 /home/captain /home/captain/config /home/captain/data /home/captain/sessions /home/captain/opencode
+        # Empfohlener Ort für CAPTAIN_SHARED_DIR (leer, nicht freigegeben,
+        # solange die Variable leer ist)
+        chmod 755 /home/captain/shared
         for f in /opt/captain/defaults/*; do
           [ -e "/home/captain/config/$${f##*/}" ] || cp "$$f" /home/captain/config/
         done
@@ -96,11 +99,14 @@ services:
       CAPTAIN_WEBFETCH_ALLOW: ${CAPTAIN_WEBFETCH_ALLOW:-}
       # Geteiltes Verzeichnis (README: „Geteiltes Verzeichnis (nur lesen)“):
       # Host-Pfad, leer = aus. start.mjs prüft ihn (absolut, nicht / oder ein
-      # Systemverzeichnis, keine Überschneidung mit CAPTAIN_HOME) und /shared
+      # Systemverzeichnis, unter CAPTAIN_HOME nur shared/…) und /shared
       # (schreibgeschützt, keine Symlinks), setzt die Policies und gibt opencode
       # die Variablen nicht weiter.
       CAPTAIN_SHARED_DIR: ${CAPTAIN_SHARED_DIR:-}
       CAPTAIN_HOME: ${CAPTAIN_HOME:-/opt/captain}
+      # Grenzen der Prüfung von /shared (Default 100000 Einträge, 5 s)
+      CAPTAIN_SHARED_MAX_ENTRIES: ${CAPTAIN_SHARED_MAX_ENTRIES:-}
+      CAPTAIN_SHARED_MAX_SECONDS: ${CAPTAIN_SHARED_MAX_SECONDS:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Nur zum Debuggen (nie öffentlich): Port auf dem Host freigeben.
@@ -141,6 +147,8 @@ services:
       OPENCODE_MODEL: ${OPENCODE_MODEL:-llm/${LLM_MODEL:-}}
       SESSIONS_DIR: /tmp/captain
       DATA_DIR: /data
+      # für die Prüfung von CAPTAIN_SHARED_DIR (nur <home>/shared erlaubt)
+      CAPTAIN_HOME: ${CAPTAIN_HOME:-/opt/captain}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

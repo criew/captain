@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { checkHomeOverlap, checkMount, GIT_PATTERNS, normalizeSharedDir, scan, SHARED_MOUNT, sharedPolicies } from "./shared.mjs";
+import { checkHome, checkMount, GIT_PATTERNS, normalizeSharedDir, scan, scanLimits, SHARED_MOUNT, sharedPolicies } from "./shared.mjs";
 import { environment, parseJsonc } from "./start.mjs";
 
 const CASES = JSON.parse(fs.readFileSync(new URL("../../tests/data/shared_dir.json", import.meta.url), "utf8"));
@@ -35,18 +35,28 @@ test("Pfadpruefung: gemeinsame Testfaelle (wie captain/shared.py)", () => {
   assert.equal(normalizeSharedDir(undefined), null);
 });
 
-test("keine Ueberschneidung mit CAPTAIN_HOME", () => {
-  for (const s of ["/opt/captain", "/opt/captain/shared", "/opt"]) {
-    assert.throws(() => checkHomeOverlap(s, "/opt/captain/"), /CAPTAIN_HOME/, s);
+test("CAPTAIN_HOME: nur <home>/shared[/…] (gemeinsame Testfaelle wie captain/shared.py)", () => {
+  for (const c of CASES.home) {
+    const label = `${c.home}|${c.path}`;
+    if (c.ok) assert.equal(normalizeSharedDir(c.path, c.home), c.path.replace(/\/+$/, ""), label);
+    else assert.throws(() => normalizeSharedDir(c.path, c.home), /CAPTAIN_SHARED_DIR|CAPTAIN_HOME/, label);
   }
-  assert.throws(() => checkHomeOverlap("/srv/data", "/srv/data/captain"), /CAPTAIN_HOME/);
-  for (const s of ["/opt/captain-shared", "/srv/captain-shared", null]) checkHomeOverlap(s, "/opt/captain");
-  checkHomeOverlap("/srv/x", undefined);
+  checkHome(null, "relativ"); // Feature aus: nichts zu pruefen
+  assert.throws(() => checkHome("/srv/x", "relativ"), /CAPTAIN_HOME/);
+});
+
+test("Grenzen der Pruefung: Default, anhebbar, Unsinn -> Fehler", () => {
+  assert.deepEqual(scanLimits({}), { maxEntries: 100000, maxMs: 5000 });
+  assert.deepEqual(scanLimits({ CAPTAIN_SHARED_MAX_ENTRIES: "500000", CAPTAIN_SHARED_MAX_SECONDS: "20" }), { maxEntries: 500000, maxMs: 20000 });
+  for (const v of ["0", "-1", "1e5", "abc", "1.5"]) {
+    assert.throws(() => scanLimits({ CAPTAIN_SHARED_MAX_ENTRIES: v }), /CAPTAIN_SHARED_MAX_ENTRIES/, v);
+    assert.throws(() => scanLimits({ CAPTAIN_SHARED_MAX_SECONDS: v }), /CAPTAIN_SHARED_MAX_SECONDS/, v);
+  }
 });
 
 test("Policies: external_directory nur fuer /shared/*, .git und edit gesperrt", () => {
   const on = [BASE, {}, content(environment({}, ["llm"], { shared: true }))];
-  for (const r of ["/shared/*", "/shared/sub/*", "/shared/Team Infos/*", "/shared/.github/*", "/shared/a.git/*"]) {
+  for (const r of ["/shared/*", "/shared/sub/*", "/shared/Team Infos/*", "/shared/.github/*", "/shared/a.gitx/*"]) {
     assert.equal(blocked(on, "external_directory", r), false, r);
   }
   for (const r of ["*", "/*", "/sharedX/*", "/shared-x/*", "/SHARED/*", "/tmp/captain/*", "/tmp/captain/ses_x/*",
@@ -60,7 +70,12 @@ test("Policies: external_directory nur fuer /shared/*, .git und edit gesperrt", 
   // alles andere bleibt, wie es war
   assert.ok(blocked(on, "shell", "ls") && blocked(on, "webfetch", "http://x/") && blocked(on, "websearch", "x"));
   assert.ok(blocked(on, "subagent", "x") && blocked(on, "skill", "x") && blocked(on, "opencode_read_mcp_resource", "x"));
-  assert.deepEqual(GIT_PATTERNS, ["/shared/.git", "/shared/.git/*", "/shared/*/.git", "/shared/*/.git/*"]);
+  assert.equal(GIT_PATTERNS.length, 16); // 8 Schreibweisen von git, je Datei/Verzeichnis und darunter
+  for (const r of ["/shared/mirror.git/*", "/shared/a/.GIT/*", "/shared/a/.Git/*"]) assert.ok(blocked(on, "external_directory", r), r);
+  for (const r of ["/shared/.netrc", "/shared/a/_netrc", "/shared/a/b/.git-credentials", "/shared/x.git/config"]) {
+    assert.ok(blocked(on, "read", r), r);
+  }
+  assert.equal(blocked(on, "read", "/shared/netrc.md"), false);
 });
 
 test("Policies ohne Variable: external_directory komplett gesperrt", () => {
@@ -149,5 +164,56 @@ test("Mount: fehlt, keine Verzeichnis, beschreibbar -> Fehler", () => {
   assert.throws(() => checkMount(path.join(d, "datei")), /kein Verzeichnis/);
   assert.throws(() => checkMount(d), /beschreibbar/);
   assert.equal(SHARED_MOUNT, "/shared");
+  fs.rmSync(d, { recursive: true });
+});
+
+test("Pruefung: Zugangsdaten-Dateien und Bare-Repos werden gemeldet, .git eines Clones nicht", async () => {
+  const d = tmpdir();
+  for (const sub of ["clone/.git/objects", "clone/.git/refs", "mirror.git/objects", "mirror.git/refs"]) {
+    fs.mkdirSync(path.join(d, sub), { recursive: true });
+  }
+  fs.writeFileSync(path.join(d, "clone", ".git", "HEAD"), "ref");
+  fs.writeFileSync(path.join(d, "mirror.git", "HEAD"), "ref");
+  fs.writeFileSync(path.join(d, ".NETRC"), "machine x");
+  fs.writeFileSync(path.join(d, "clone", ".git-credentials"), "https://u:p@x");
+  const problems = await scan(d, { sensitive: [] });
+  assert.equal(problems.length, 3, problems.join("; "));
+  assert.ok(problems.some((p) => p.includes("mirror.git") && p.includes("Bare")), problems.join("; "));
+  assert.equal(problems.filter((p) => p.includes("Zugangsdaten")).length, 2, problems.join("; "));
+  fs.rmSync(d, { recursive: true });
+});
+
+test("Pruefung: zu viele Eintraege oder zu lange -> Befund (fail closed)", async () => {
+  const d = tmpdir();
+  for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(d, `f${i}`), "x");
+  assert.deepEqual(await scan(d, { sensitive: [], maxEntries: 5 }), []);
+  let problems = await scan(d, { sensitive: [], maxEntries: 4 });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /mehr als 4 Eintraege.*CAPTAIN_SHARED_MAX_ENTRIES/);
+  problems = await scan(d, { sensitive: [], maxMs: -1 });
+  assert.match(problems[0], /laenger als.*CAPTAIN_SHARED_MAX_SECONDS/);
+  fs.rmSync(d, { recursive: true });
+});
+
+test("Pruefung: Mountpoint unter dem Verzeichnis wird gemeldet", { skip: !fs.existsSync("/dev/shm") || process.platform !== "linux" }, async () => {
+  // /dev ist ein eigenes Dateisystem, /dev/shm und /dev/pts sind darin eingehaengt
+  const problems = await scan("/dev", { sensitive: [], max: 100 });
+  assert.ok(problems.some((p) => p.startsWith("/dev/shm:") && p.includes("Mountpoint")), problems.join("; "));
+});
+
+test("Pruefung: Mountpoints laut mountinfo (auch Bind-Mounts desselben Dateisystems)", async () => {
+  const d = tmpdir();
+  const info = path.join(d, "mountinfo");
+  fs.writeFileSync(info, [
+    "1 0 8:1 / / rw - ext4 /dev/sda1 rw",
+    "2 1 8:1 /srv/captain-shared /shared ro - ext4 /dev/sda1 rw",
+    "3 2 8:1 /opt/captain/sessions/ses_x /shared/infos/sitzung ro - ext4 /dev/sda1 rw",
+    "4 2 8:1 /root/.ssh /shared/mit\\040leer ro - ext4 /dev/sda1 rw",
+    "5 1 8:1 /x /sharedX ro - ext4 /dev/sda1 rw",
+  ].join("\n") + "\n");
+  const { mountsBelow } = await import("./shared.mjs");
+  assert.deepEqual(mountsBelow("/shared", info), ["/shared/infos/sitzung", "/shared/mit leer"]);
+  const problems = await scan(d, { sensitive: [], mountinfo: info });
+  assert.deepEqual(problems, []); // d selbst hat keine Mounts darunter
   fs.rmSync(d, { recursive: true });
 });

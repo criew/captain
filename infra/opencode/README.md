@@ -221,7 +221,7 @@ Dazu setzt `start.mjs` `OPENCODE_CONFIG_CONTENT` mit `share: disabled`,
 `snapshots: false` (letzte Quelle → Admin-Config kann sie nicht ändern) und
 den webfetch-Policies (`webfetch:*` deny, mit Allowlist danach die erlaubten
 Muster – siehe „webfetch“) sowie `external_directory:*` deny (mit
-`CAPTAIN_SHARED_DIR` danach `/shared/*` erlaubt, `.git` und `edit` dort
+`CAPTAIN_SHARED_DIR` danach `/shared/*` erlaubt, `*.git`, Zugangsdaten und `edit` dort
 verboten – siehe „Geteiltes Verzeichnis“). Eine solche Policy in der Basis würde
 jede Freigabe schlagen (früheste Quelle gewinnt), deshalb stehen beide dort
 nicht; die Admin-Config darf `experimental` nicht setzen.
@@ -249,8 +249,9 @@ nicht; die Admin-Config darf `experimental` nicht setzen.
   // nur mit CAPTAIN_SHARED_DIR (captain.shared.session_rules):
   // {"action": "external_directory", "resource": "/shared/*", "effect": "allow"},
   // {"action": "read", "resource": "/shared" | "/shared/*", "effect": "allow"},
-  // external_directory und read für /shared/.git, /shared/.git/*, /shared/*/.git,
-  // /shared/*/.git/* → deny; edit für /shared, /shared/* → deny
+  // external_directory und read für /shared/*.git und /shared/*.git/* in allen
+  // 8 Schreibweisen von git → deny; read für .git-credentials, .netrc, _netrc
+  // (/shared/N, /shared/*/N) → deny; edit für /shared, /shared/* → deny
 ]
 ```
 
@@ -273,10 +274,14 @@ Betrieb, Risiken und Admin-Schritte: Haupt-README, Kapitel 10. Technisch
 - **Symlinks** unter `/shared` würden gelesen (Gegenprobe im Test: fremde
   Session-Datei, `/etc/passwd`). Deshalb prüft `shared.mjs` beim Start und alle
   10 s alles unter `/shared` per `lstat` (Symlinks, `nlink > 1`, Geräte/FIFOs/
-  Sockets, Verzeichnisse mit derselben Geräte-/Inode-Nummer wie
-  `/tmp/captain`, `/root/.local/share/opencode`, `/etc/captain`, `/run/captain`,
-  `/root/.config/opencode`) – mit Befund startet opencode nicht bzw. wird
-  beendet. `/shared` muss außerdem schreibgeschützt sein.
+  Sockets, Mountpoints laut `/proc/self/mountinfo` oder mit anderer
+  Gerätenummer, Bare-Repos (`HEAD` + `objects/` + `refs/` außerhalb von
+  `.git`), Zugangsdaten-Dateien, Verzeichnisse mit derselben Geräte-/Inode-Nummer
+  wie `/tmp/captain`, `/root/.local/share/opencode`, `/etc/captain`,
+  `/run/captain`, `/root/.config/opencode`) – mit Befund startet opencode nicht
+  bzw. wird beendet. Mehr als `CAPTAIN_SHARED_MAX_ENTRIES` (100 000) Einträge
+  oder länger als `CAPTAIN_SHARED_MAX_SECONDS` (5 s) zählt ebenfalls als
+  Befund. `/shared` muss außerdem schreibgeschützt sein.
 - Ohne Variable hängt an `/shared` ein leeres Volume, und die Policy
   `external_directory:*` deny gilt ohne Ausnahme.
 
