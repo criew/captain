@@ -38,6 +38,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from .webfetch import session_rules as webfetch_rules
+
 log = logging.getLogger(__name__)
 
 USER = "opencode"  # Basic-Auth-Benutzer von opencode serve
@@ -318,8 +320,8 @@ DENIED_ACTIONS = (
 )
 
 
-def session_permissions(directory: str) -> list[dict]:
-    """Session-Regeln: nur Dateizugriff in ``directory``.
+def session_permissions(directory: str, webfetch: tuple[str, ...] | list[str] = ()) -> list[dict]:
+    """Session-Regeln: nur Dateizugriff in ``directory`` (plus webfetch-Allowlist).
 
     opencode wertet Agent-Defaults, globale Config und dann diese Regeln aus;
     die letzte passende gewinnt. Global ist alles verboten, hier wird nur
@@ -332,6 +334,12 @@ def session_permissions(directory: str) -> list[dict]:
     verboten – das überstimmt auch Freigaben aus der Admin-Config (die vor
     den Session-Regeln ausgewertet wird); MCP-Tools (``<server>_<tool>``)
     bleiben der Admin-Config überlassen.
+
+    ``webfetch``: kanonische Präfixe aus ``CAPTAIN_WEBFETCH_ALLOW``
+    (:func:`captain.webfetch.parse`). Dann folgen auf ``webfetch * deny`` die
+    Freigaben ``<präfix>`` und ``<präfix>/*`` und danach Verbote für
+    ``..``-Segmente und Steuerzeichen – so überstimmt keine Regel der
+    Admin-Config die Allowlist, in keine Richtung.
     """
     root = directory.rstrip("/")
     rules = [{"action": a, "resource": "*", "effect": "allow"} for a in FILE_ACTIONS]
@@ -347,6 +355,7 @@ def session_permissions(directory: str) -> list[dict]:
             for pattern in (name, f"{name}/*", f"*/{name}", f"*/{name}/*"):
                 rules.append({"action": action, "resource": pattern, "effect": "deny"})
     rules += [{"action": a, "resource": "*", "effect": "deny"} for a in DENIED_ACTIONS]
+    rules += webfetch_rules(webfetch)
     return rules
 
 

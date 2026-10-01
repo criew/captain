@@ -87,6 +87,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # webfetch-Allowlist (README: „webfetch für bestimmte URLs erlauben“).
+      # start.mjs macht daraus Policies und einen Egress-Filter; opencode
+      # selbst bekommt die Variable nicht. Leer = webfetch aus.
+      CAPTAIN_WEBFETCH_ALLOW: ${CAPTAIN_WEBFETCH_ALLOW:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Nur zum Debuggen (nie öffentlich): Port auf dem Host freigeben.

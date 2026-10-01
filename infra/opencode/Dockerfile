@@ -50,7 +50,8 @@ ENV OPENCODE_DISABLE_PROJECT_CONFIG=1
 # fest: OPENCODE_CONFIG (bereinigte Kopie), OPENCODE_CONFIG_CONTENT als letzte
 # Quelle (kein Teilen, keine Updates, keine Websuche/LSP/Formatter/Snapshots),
 # Projekt-Config aus. Die .env kann daran nichts aendern.
-COPY start.mjs /opt/captain/start.mjs
+# egress.mjs: Egress-Filter, nur aktiv mit CAPTAIN_WEBFETCH_ALLOW (webfetch-Allowlist)
+COPY start.mjs egress.mjs /opt/captain/
 
 # --- Admin-Config (editierbar, im Betrieb vom Host eingebunden) -------------
 # /etc/captain/opencode.jsonc: Provider, Modelle, Limits, MCP-Server, Freigaben

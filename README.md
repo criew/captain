@@ -24,6 +24,7 @@ captain/
 ├─ bot.py                 Bot-Logik: Warteschlange pro Session, Befehle, Streaming, Nachholen
 ├─ catchup.py             Nachholen verpasster Posts: Ablauf, Startpunkt, Auswahl
 ├─ cursors.py             Cursor pro Kanal, beantwortete Posts (DATA_DIR/cursors.json)
+├─ webfetch.py            webfetch-Allowlist: Normalisierung, Session-Regeln
 ├─ __main__.py            Einstieg: python -m captain
 scripts/e2e.py            Ende-zu-Ende-Test gegen das laufende Setup
 tests/                    pytest (fake_llm.py: Fake-LLM, mcp_testserver/: Test-MCP-Server)
@@ -109,11 +110,13 @@ Variablen der `.env` (Details: `.env.example` und „Konfiguration“):
 | `LOG_LEVEL` | nein (`INFO`) | Log-Level des Bots |
 | `CAPTAIN_HTTP_PROXY`, `CAPTAIN_HTTPS_PROXY`, `CAPTAIN_NO_PROXY` | nein | Proxy für ausgehende Verbindungen (siehe „Hinter einem Proxy“) |
 | `CAPTAIN_CA_FILE` | nein | Dateiname einer zusätzlichen CA (PEM) in `$CAPTAIN_HOME/config/`, z. B. Firmen-CA des LLM-Endpunkts (siehe „Hinter einem Proxy“) |
+| `CAPTAIN_WEBFETCH_ALLOW` | nein (leer = aus) | URL-Präfixe, die das Modell per `webfetch` lesen darf (siehe 9.) |
 | `MCP_…` in **`mcp.env`** | nein | Geheimnisse für MCP-Server (Vorlage `mcp.env.example`; `{env:MCP_…}` in der Config) |
 
 Der Bot bekommt die ganze `.env`. Der opencode-Container bekommt davon nur
 die in `compose.deploy.yml` genannten Variablen (`OPENCODE_SERVER_PASSWORD`,
-`OPENCODE_MODEL`/`_VARIANT`, `LLM_*`, `OLLAMA_BASE_URL`, Cloud-API-Keys) plus
+`OPENCODE_MODEL`/`_VARIANT`, `LLM_*`, `OLLAMA_BASE_URL`, Cloud-API-Keys,
+`CAPTAIN_WEBFETCH_ALLOW` – die liest nur das Startskript) plus
 `mcp.env` – also nie `MM_BOT_TOKEN`. In der Admin-Config lassen sich per
 `{env:NAME}` nur `LLM_*`, `OLLAMA_*`, `MCP_*`, `*_API_KEY` und
 `OPENCODE_MODEL`/`OPENCODE_VARIANT` einsetzen, nie `MM_*`, `CAPTAIN_*` oder
@@ -167,6 +170,11 @@ einem Kanal `@captain Hallo` (Antwort als Thread unter dem Post), dort
   ```
   Die Datei ergänzt die eingebauten CAs (`NODE_EXTRA_CA_CERTS`), ersetzt sie
   nicht.
+- **webfetch** (siehe 9.) läuft im opencode-Container und nutzt dieselben
+  Einstellungen: `CAPTAIN_HTTP(S)_PROXY`, `CAPTAIN_NO_PROXY` und
+  `CAPTAIN_CA_FILE` (z. B. für einen TLS-aufbrechenden Proxy). Erlaubte Hosts
+  müssen also über den Proxy oder – in `CAPTAIN_NO_PROXY` – direkt erreichbar
+  sein.
 - **DNS in Containern prüfen:** `docker run --rm busybox nslookup <mattermost-host>`.
   Meldet das `no servers could be reached`, erreichen Container keinen
   DNS-Server (typisch bei `systemd-resolved` auf dem Host + gesperrtem
@@ -211,8 +219,9 @@ Binary ermittelt, per Test belegt):
 
 1. **Sicherheitsbasis im Image** (`infra/opencode/config/base.jsonc` →
    `/root/.config/opencode/opencode.jsonc`): globales `* * deny` und
-   `experimental.policies` gegen Shell, Web, Subagenten, Skills, Rückfragen,
-   fremde Verzeichnisse und MCP-Ressourcen; Projekt-Config aus.
+   `experimental.policies` gegen Shell, Websuche, Subagenten, Skills,
+   Rückfragen, fremde Verzeichnisse und MCP-Ressourcen; Projekt-Config aus.
+   Die webfetch-Policies setzt das Startskript (Punkt 3).
 2. **Admin-Config** `$CAPTAIN_HOME/config/opencode.jsonc` – **editierbar**,
    aber nur über das Startskript `infra/opencode/start.mjs`. Es liest die
    Datei beim Containerstart, setzt `{env:…}` selbst ein (JSON-sicher auf
@@ -235,10 +244,12 @@ Binary ermittelt, per Test belegt):
    Alles andere verwirft das Skript mit einer WARNUNG im Log von `opencode`;
    ungültiges JSONC oder eine nicht schreibbare Kopie → opencode startet nicht.
 3. Feste Schalter (`OPENCODE_CONFIG_CONTENT`, vom Startskript gesetzt: kein
-   Teilen, keine Updates, keine Websuche/LSP/Formatter/Snapshots).
+   Teilen, keine Updates, keine Websuche/LSP/Formatter/Snapshots) und die
+   webfetch-Policies (`webfetch:*` gesperrt, außer der Allowlist aus 9.).
 4. Pro Session die Regeln des Bots (nur Dateien im eigenen Verzeichnis, zum
    Schluss Verbot von Shell, Web, Subagenten, Skills, Rückfragen, Code Mode,
-   MCP-Ressourcen und fremden Verzeichnissen).
+   MCP-Ressourcen und fremden Verzeichnissen; danach ggf. die
+   webfetch-Allowlist).
 
 Regeln aller Quellen werden aneinandergehängt (die letzte passende gewinnt),
 Policies der Sicherheitsbasis gewinnen immer gegen Policies späterer Quellen,
@@ -325,7 +336,77 @@ die Shell werden dem Modell nicht angeboten (Aufrufversuch: „No tool named …
 Einbinden für einen Probelauf: `compose.deploy.yml` plus
 `tests/mcp_testserver/compose.yml` (siehe dort).
 
-### 9. Erster Start, Updates, Backup, Deinstallation
+### 9. webfetch für bestimmte URLs erlauben
+
+Ohne Einstellung hat das Modell keinen Internet-Zugriff. Eine Zeile in der
+`.env` gibt das Tool `webfetch` für feste URL-Präfixe frei, alles andere
+bleibt gesperrt – Beispiel: alles unterhalb von `http://text-example.org`:
+
+```sh
+CAPTAIN_WEBFETCH_ALLOW=http://text-example.org
+```
+
+Danach `docker compose -f compose.deploy.yml up -d` (Bot und opencode lesen
+die Variable beim Start). Die Session-Regeln gelten für **neue** Sessions
+(`!neu`, neuer Thread); die Policies in opencode sofort – eine verkleinerte
+Liste wirkt also auch in alten Sessions, eine erweiterte erst in neuen.
+
+- Mehrere Einträge kommagetrennt, z. B.
+  `http://text-example.org, https://docs.example.org/handbuch`.
+- Ein Eintrag erlaubt **genau** dieses Schema, diesen Host und Port und alle
+  Pfade darunter (mit Query): `http://text-example.org` erlaubt
+  `http://text-example.org/…`, aber nicht `https://text-example.org` (eigener
+  Eintrag), `http://text-example.org:8080`, `http://www.text-example.org`,
+  `http://text-example.org.evil.com` oder `http://text-example.org@evil.com`.
+- Mit Pfad (`https://docs.example.org/handbuch`) nur `/handbuch` und
+  `/handbuch/…`, nicht `/handbuch-alt`; URLs mit `..`-Segmenten (auch `%2e`)
+  werden abgelehnt.
+- Schreibweise egal: Schema und Host werden klein geschrieben, Standardport
+  und `/` am Ende fallen weg. Nicht erlaubt sind Platzhalter (`*`, `?`),
+  Query, `#`, Userinfo (`@`), `\`, Leerzeichen und Nicht-ASCII (IDN als
+  `xn--…`). Ein ungültiger Eintrag lässt Bot und opencode **nicht starten**
+  (Meldung im Log) – nie wird still etwas anderes freigegeben.
+- Shell, Websuche, Code Mode (`execute`), Subagenten, Skills und fremde
+  Verzeichnisse bleiben gesperrt; die Container bekommen keine weiteren
+  Secrets. Das Modell erfährt die Liste über `captain-umgebung`.
+
+Durchgesetzt wird an drei Stellen:
+
+| Sperre | Wo | Wirkung |
+|---|---|---|
+| Session-Regeln | Bot, `captain/webfetch.py` | nach `webfetch * deny` je Präfix `p` die Muster `p` und `p/*` erlaubt, danach `..`/Tab/Zeilenumbruch verboten. Letzte Regel gewinnt – Freigaben der Admin-Config (auch `{"action":"webfetch","resource":"*","effect":"allow"}`) ändern nichts |
+| Policies (Obergrenze) | `infra/opencode/start.mjs` → `OPENCODE_CONFIG_CONTENT` | dieselben Muster als `webfetch:<muster>`; gilt auch ohne Session-Regeln. Die Admin-Config kann keine Policies setzen |
+| Egress-Filter | `infra/opencode/egress.mjs` (im Startskript) | nur mit Allowlist aktiv: opencode erreicht nur Allowlist-Hosts und die eigenen Endpunkte (`baseURL` der Provider, MCP-URLs, Cloud-APIs mit Key) – fängt Weiterleitungen ab, Log `[captain-egress] blockiert: …` |
+
+Was opencode 2.0.20 bei webfetch prüft (aus dem Binary, belegt durch
+`tests/test_webfetch_integration.py`): die **rohe URL** des Modells, gegen
+Muster mit `*` (beliebig, auch `/`), `?` (genau ein Zeichen) und
+Groß-/Kleinschreibung; `\` zählt als `/`. **Weiterleitungen folgt opencode
+ungeprüft** – ohne Filter lieferte `http://text-example.org/redirect?to=http://evil.test/…`
+den Inhalt von `evil.test`. Deshalb der Egress-Filter: Er prüft Host und Port
+(bei HTTPS sieht er nur `CONNECT host:port`), leitet über `CAPTAIN_HTTP(S)_PROXY`
+weiter (nur `http://`-Proxys) und Ziele aus `CAPTAIN_NO_PROXY` direkt.
+Provider ohne `settings.baseURL` (außer eingebauten Cloud-Providern mit Key)
+kennt er nicht – Warnung im Log, dann `baseURL` eintragen.
+
+Risiken:
+
+- **Datenabfluss über URL-Parameter:** Das Modell kann Chat-Inhalte in Pfad
+  oder Query einer erlaubten URL schreiben
+  (`http://text-example.org/?q=<vertraulich>`); wer die Logs dieses Hosts
+  sieht, liest mit. Ausgelöst werden kann das auch durch eingeschleuste
+  Anweisungen (Prompt-Injection) in abgerufenen Seiten oder Anhängen. Nur
+  Hosts freigeben, deren Betreiber man vertraut.
+- **Weiterleitungen** innerhalb eines erlaubten Hosts (auch http → https)
+  prüft niemand; ein Pfad-Präfix gilt nur für die erste URL. Weiterleitungen
+  auf die eigenen Endpunkte (LLM, MCP) lässt der Filter durch – ohne deren
+  Zugangsdaten. Fremde Hosts sind gesperrt.
+- **Inhalte** abgerufener Seiten landen im Modellkontext (Prompt-Injection);
+  das Modell hat daneben nur Dateizugriff im Session-Verzeichnis.
+- Ältere `$CAPTAIN_HOME/config/AGENTS.md` sagen noch „kein Web-Zugriff“; der
+  Hinweis in `captain-umgebung` geht vor, die Vorlage ist angepasst.
+
+### 10. Erster Start, Updates, Backup, Deinstallation
 
 - **Erster Start:** Captain beantwortet nur, was ab dann kommt; ältere
   Nachrichten bleiben unbeantwortet. Nach späteren Pausen (Neustart, Update)
@@ -389,12 +470,15 @@ anmelden und dem Bot `captain` schreiben. Logs: `docker compose logs -f captain`
   Rückfragen, Code Mode, MCP-Ressourcen und fremde Verzeichnisse (das
   überstimmt auch Freigaben aus der editierbaren Admin-Config). opencode
   bietet dem Modell dadurch nur `read`, `write`, `edit`, `glob`, `grep` an –
-  plus vom Admin freigegebene MCP-Tools.
+  plus vom Admin freigegebene MCP-Tools und, mit `CAPTAIN_WEBFETCH_ALLOW`,
+  `webfetch` für die erlaubten URLs (siehe „webfetch für bestimmte URLs
+  erlauben“).
 - **Systemanweisungen pro Session** (dauerhaft, überleben Kompaktierung): der
   Bot setzt nach dem Anlegen über
   `PUT /api/experimental/session/{id}/instructions/entries/{key}` zwei
   Einträge – `captain-persona` (`CAPTAIN_SYSTEM_PROMPT[_FILE]`) und
-  `captain-umgebung` (konkretes Verzeichnis, keine Shell/Web). opencode hängt
+  `captain-umgebung` (konkretes Verzeichnis, keine Shell/Web bzw. die
+  webfetch-Allowlist). opencode hängt
   sie als `<context key=…>` an den Systemprompt, **nach** der globalen
   `AGENTS.md` (die deshalb keine Persona mehr enthält, nur Stil- und
   Werkzeugregeln). Schlägt das Setzen (auch teilweise) fehl, bekommt der
@@ -493,6 +577,7 @@ deren Pfad in `CAPTAIN_CONFIG` steht (gleiche Schlüssel, Umgebung gewinnt).
 | `MAX_ATTACHMENT_MB` | nein    | `20`          | Größter Anhang in MB, der geladen und an opencode gegeben wird (Dezimalzahl erlaubt, `0` = keine Grenze) |
 | `HISTORY_MAX_POSTS` | nein    | `50`          | Vorgeschichte einer neuen Kanal-Unterhaltung: höchstens so viele Posts (`0` = keine) |
 | `HISTORY_MAX_CHARS` | nein    | `8000`        | … und so viele Zeichen insgesamt (neueste gewinnen) |
+| `CAPTAIN_WEBFETCH_ALLOW` | nein | leer = aus   | Kommagetrennte URL-Präfixe für `webfetch` (Session-Regeln, Systemhinweis); ungültig → Start bricht ab |
 | `LOG_LEVEL`         | nein    | `INFO`        | Log-Level (nur Umgebung)                 |
 
 Im Container setzt `compose.yml` `MM_URL`/`OPENCODE_URL` auf die

@@ -19,12 +19,14 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from . import webfetch
+
 CONFIG_ENV = "CAPTAIN_CONFIG"
 
 REQUIRED = ("MM_URL", "MM_BOT_TOKEN", "OPENCODE_URL")
 OPTIONAL = (
     "OPENCODE_PASSWORD", "OPENCODE_MODEL", "OPENCODE_VARIANT",
-    "CAPTAIN_SYSTEM_PROMPT", "CAPTAIN_SYSTEM_PROMPT_FILE",
+    "CAPTAIN_SYSTEM_PROMPT", "CAPTAIN_SYSTEM_PROMPT_FILE", "CAPTAIN_WEBFETCH_ALLOW",
 )
 DEFAULTS = {
     "SESSIONS_DIR": "/tmp/captain",
@@ -65,6 +67,8 @@ class Config:
     max_attachment_mb: float = 20.0  # 0 = keine Grenze
     history_max_posts: int = int(DEFAULTS["HISTORY_MAX_POSTS"])  # 0 = keine Vorgeschichte
     history_max_chars: int = int(DEFAULTS["HISTORY_MAX_CHARS"])
+    # webfetch-Allowlist (kanonische URL-Präfixe); leer = webfetch aus
+    webfetch_allow: tuple[str, ...] = ()
 
     @property
     def max_attachment_bytes(self) -> int | None:
@@ -144,6 +148,15 @@ def _sessions_dir(value) -> str:
     return path
 
 
+def _webfetch(value) -> tuple[str, ...]:
+    if isinstance(value, (list, tuple)):
+        value = ",".join(str(v) for v in value)
+    try:
+        return webfetch.parse(None if value is None else str(value))
+    except ValueError as e:
+        raise ConfigError(str(e)) from None
+
+
 def _count(values: dict, key: str) -> int:
     """Ganzzahl >= 0 (auch aus JSON als Zahl)."""
     raw = values[key]
@@ -187,4 +200,5 @@ def load(path: str | None = None, env: Mapping[str, str] | None = None) -> Confi
         max_attachment_mb=_parse_mb(values["MAX_ATTACHMENT_MB"]),
         history_max_posts=_count(values, "HISTORY_MAX_POSTS"),
         history_max_chars=_count(values, "HISTORY_MAX_CHARS"),
+        webfetch_allow=_webfetch(values.get("CAPTAIN_WEBFETCH_ALLOW")),
     )
