@@ -100,7 +100,13 @@ Variablen der `.env` (Details: `.env.example` und „Konfiguration“):
 | `OPENCODE_SERVER_PASSWORD` | ja | Passwort zwischen Bot und opencode (z. B. `openssl rand -hex 24`) |
 | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | ja* | Modell-Endpunkt (*oder Cloud-API-Key + `OPENCODE_MODEL`) |
 | `OPENCODE_MODEL`, `OPENCODE_VARIANT` | nein | Standardmodell, Default `llm/$LLM_MODEL` |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | nein | Cloud-Provider |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | nein | Cloud-Provider – nur gesetzte werden freigegeben |
+
+Angeboten (auch per `!modell`) werden **nur** die Provider aus
+`$CAPTAIN_HOME/config/opencode.jsonc` plus eingebaute Cloud-Provider, deren
+API-Key gesetzt ist. Die in opencode eingebauten Gratis-Modelle
+(`opencode/…`, Zen) sind gesperrt – Chat-Inhalte gehen nie unbeabsichtigt an
+einen fremden Dienst. Die Modell-Liste von models.dev wird nicht abgerufen.
 | `CAPTAIN_SYSTEM_PROMPT` / `CAPTAIN_SYSTEM_PROMPT_FILE` | nein | Persona (Datei z. B. `/config/persona.md` = `$CAPTAIN_HOME/config/persona.md`) |
 | `ALLOWED_USERS` | nein | nur diese Nutzer (kommagetrennt) |
 | `CATCHUP_MAX_AGE` | nein (`24h`) | verpasste Nachrichten höchstens so alt nachholen |

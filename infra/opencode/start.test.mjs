@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 
-import { buildConfig, environment, FIXED, PACKAGES, parseJsonc, refAllowed, resolveEnv, sanitize } from "./start.mjs";
+import { buildConfig, enabledProviders, environment, FIXED, NO_PROVIDER, PACKAGES, parseJsonc, refAllowed, resolveEnv, sanitize } from "./start.mjs";
 
 const TEMPLATE = fs.readFileSync(new URL("./config/opencode.jsonc", import.meta.url), "utf8");
 const ENV = { LLM_BASE_URL: "http://llm/v1", LLM_API_KEY: "k", LLM_MODEL: "m1", OPENCODE_MODEL: "llm/m1",
@@ -131,6 +131,21 @@ test("Umgebung fuer opencode: Allowlist, feste Schalter", () => {
   assert.deepEqual(Object.keys(env).sort(), ["ANTHROPIC_API_KEY", "LLM_API_KEY", "OPENCODE_SERVER_PASSWORD", "PATH", ...Object.keys(FIXED)].sort());
   assert.equal(env.OPENCODE_CONFIG, "/run/captain/opencode.json");
   assert.equal(env.OPENCODE_DISABLE_PROJECT_CONFIG, "1");
+  assert.equal(JSON.parse(env.OPENCODE_CONFIG_CONTENT).share, "disabled");
+  assert.equal(env.OPENCODE_DISABLE_MODELS_FETCH, "1");
+  // ohne Angabe: kein Provider freigegeben (leere Liste hiesse „alle“)
+  assert.deepEqual(JSON.parse(env.OPENCODE_CONFIG_CONTENT).enabled_providers, [NO_PROVIDER]);
+});
+
+test("Provider: nur Admin-Config plus Cloud-Provider mit gesetztem Key", () => {
+  const clean = { providers: { llm: {}, ollama: {} } };
+  assert.deepEqual(enabledProviders(clean, {}), ["llm", "ollama"]);
+  assert.deepEqual(enabledProviders(clean, { ANTHROPIC_API_KEY: "a", OPENAI_API_KEY: "" }), ["anthropic", "llm", "ollama"]);
+  assert.deepEqual(enabledProviders({}, {}), [NO_PROVIDER]);
+  // eingebauter Zen-Provider "opencode" nie automatisch
+  assert.ok(!enabledProviders(clean, { OPENROUTER_API_KEY: "r" }).includes("opencode"));
+  const env = environment({}, ["llm"]);
+  assert.deepEqual(JSON.parse(env.OPENCODE_CONFIG_CONTENT).enabled_providers, ["llm"]);
   assert.equal(JSON.parse(env.OPENCODE_CONFIG_CONTENT).share, "disabled");
 });
 
