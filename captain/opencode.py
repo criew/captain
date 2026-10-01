@@ -609,9 +609,14 @@ class OpencodeClient:
         newer: list[dict] = []
         cursor = None
         for _ in range(max_pages):
-            params = {"limit": str(page), "order": "desc"}
+            # Folgeseiten nur per Cursor: opencode lehnt cursor + order mit
+            # HTTP 400 ab („Cursor cannot be combined with order“); die
+            # Reihenfolge steckt bereits im Cursor.
+            params = {"limit": str(page)}
             if cursor:
                 params["cursor"] = cursor
+            else:
+                params["order"] = "desc"
             try:
                 resp = self._http.get(f"/api/session/{session_id}/message", params=params)
             except httpx.HTTPError as e:
