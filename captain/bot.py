@@ -646,7 +646,7 @@ class Bot:
 
     def _text(self, post: Post) -> str:
         """Nachricht ohne ``@captain`` (für Befehle und Prompt)."""
-        return strip_mention(post.message, self._name)
+        return strip_mention(post.message, self._name, display_name(self.mm.me))
 
     def _me_kw(self) -> dict:
         me = self.mm.me

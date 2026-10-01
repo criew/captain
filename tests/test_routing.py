@@ -53,6 +53,9 @@ def test_strip_mention():
     assert strip_mention("Was meinst du, @captain?", "captain") == "Was meinst du, Captain?"
     assert strip_mention("  normal  ", "captain") == "normal"
     assert strip_mention("`@captain` bleibt", "captain") == "`@captain` bleibt"
+    # Anderer Bot-Name: Erwähnung mitten im Satz wird zum Anzeigenamen
+    assert strip_mention("Frag @superman mal.", "superman", "CaptainSuperman") == "Frag CaptainSuperman mal."
+    assert strip_mention("@superman, wie spät?", "superman", "CaptainSuperman") == "wie spät?"
 
 
 CODE = "def f():\n    return  1\n\n| a  |  b |\n|----|----|\n\tx"
