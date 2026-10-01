@@ -73,6 +73,10 @@ services:
         required: false
     environment:
       <<: *proxy-env
+      # Zusätzliche CA-Zertifikate (z. B. Firmen-CA des LLM-Endpunkts): Datei
+      # nach $CAPTAIN_HOME/config/ legen, Namen in CAPTAIN_CA_FILE eintragen.
+      # Ergänzt die eingebauten CAs, ersetzt sie nicht.
+      NODE_EXTRA_CA_CERTS: ${CAPTAIN_CA_FILE:+/etc/captain/}${CAPTAIN_CA_FILE:-}
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD in .env setzen}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-llm/${LLM_MODEL:-}}
       OPENCODE_VARIANT: ${OPENCODE_VARIANT:-}
