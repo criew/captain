@@ -1,0 +1,67 @@
+
+data: {"id":"evt_0f3379aae001Z0B0hw2Y7E559z","created":1790786902702,"type":"session.inbox.enqueued","location":{"directory":"/tmp"},"data":{"inboxID":"msg_0f3379aad001hv9k3X6ZU3A90t","sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","item":{"type":"user","payload":{"text":"Schreibe einen langen Aufsatz mit 20 Absätzen über die Geschichte der Seefahrt."},"delivery":"steer"}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":33,"version":1}}
+
+data: {"id":"evt_0f3379ab1001ACN1Hu8MR2bwZT","created":1790786902705,"type":"session.execution.started","data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":34,"version":1}}
+
+data: {"id":"evt_0f3379abc001J8XztCs4yhsZ9I","created":1790786902717,"type":"session.inbox.delivered","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","inboxID":"msg_0f3379aad001hv9k3X6ZU3A90t"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":35,"version":1}}
+
+data: {"id":"evt_0f3379f67001rvFY4WdFEDy2pi","created":1790786903911,"type":"session.step.started","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","agent":"build","model":{"id":"gemma4:e4b","providerID":"ollama"},"assistantMessageID":"msg_0f3379ac4001fCSjHMhCbqg27V","started":1790786902737},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":36,"version":1}}
+
+data: {"id":"evt_0f3379f6e001VTqqXqLcc0GFsS","created":1790786903918,"type":"session.reasoning.started","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f3379ac4001fCSjHMhCbqg27V","ordinal":0,"state":{"reasoningField":"reasoning"}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":37,"version":1}}
+
+data: {"id":"evt_0f3379fd9001AKea2V63gtPbvm","created":1790786904026,"type":"session.reasoning.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f3379ac4001fCSjHMhCbqg27V","ordinal":0,"delta":"Thinking Process"}}
+
+data: {"id":"evt_0f337a067001mDF10cpfNiz5Yd","created":1790786904167,"type":"session.reasoning.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f3379ac4001fCSjHMhCbqg27V","ordinal":0,"delta":":"}}
+
+data: {"id":"evt_0f337a0fa001GPdqAuaqf4jgOQ","created":1790786904314,"type":"session.reasoning.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f3379ac4001fCSjHMhCbqg27V","ordinal":0,"delta":"\n\n1."}}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+: heartbeat
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+data: {"id":"evt_0f337ba8b001UDlhvX7R0O246j","created":1790786910859,"type":"session.reasoning.ended","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f3379ac4001fCSjHMhCbqg27V","ordinal":0,"text":"Thinking Process:\n\n1.  **Analyze the Request:** The user wants a long essay (20 paragraphs) on the history of seafaring (Geschichte der Seefahrt).\n2.  **Determine Persona/Constraints:** I am operating as \"Captain,\" who must respond in German, be concise (though this request is for a long essay, so the length requirement overrides \"concise\"), avoid filler, and adopt a professional/structured tone","state":{"reasoningField":"reasoning"}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":38,"version":1}}
+
+data: {"id":"evt_0f337ba92001b965q54k7Tq6gv","created":1790786910866,"type":"session.step.streamed","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f3379ac4001fCSjHMhCbqg27V"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":39,"version":1}}
+
+data: {"id":"evt_0f337ba9d001oxzytVfcqzkacr","created":1790786910877,"type":"session.step.failed","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f3379ac4001fCSjHMhCbqg27V","error":{"type":"aborted","message":"Step interrupted"}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":40,"version":1}}
+
+data: {"id":"evt_0f337baa70013FnwrPwtJA7UtB","created":1790786910887,"type":"session.execution.interrupted","data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","reason":"user"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":41,"version":1}}

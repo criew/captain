@@ -1,0 +1,41 @@
+# Captain Test-Setup: Mattermost + opencode + Bot
+name: captain
+
+include:
+  - infra/mattermost/compose.yml
+  - infra/opencode/compose.yml
+
+services:
+  captain:
+    build: .
+    image: captain-bot:dev
+    restart: unless-stopped
+    # Zeit zum Abbrechen laufender Antworten und Sichern der Cursor (SIGTERM → SIGKILL)
+    stop_grace_period: 20s
+    env_file:
+      # MM_BOT_TOKEN u. a. (von infra/mattermost/seed.py erzeugt)
+      - path: infra/mattermost/generated.env
+        required: true
+      # OPENCODE_SERVER_PASSWORD, OPENCODE_MODEL
+      - path: infra/opencode/.env
+        required: true
+    environment:
+      # Vorrang vor env_file: dort stehen die Host-URLs (localhost)
+      MM_URL: http://mattermost:8065
+      OPENCODE_URL: http://opencode:4096
+      SESSIONS_DIR: /tmp/captain
+      DATA_DIR: /data
+    volumes:
+      # Session-Verzeichnisse, gleicher Pfad wie im opencode-Container
+      - captain-tmp:/tmp/captain
+      - captain-data:/data
+    depends_on:
+      opencode:
+        condition: service_healthy
+      # Healthcheck des Mattermost-Images prueft nur alle 30 s; der Bot
+      # wartet beim Start selbst, bis Mattermost den Token akzeptiert.
+      mattermost:
+        condition: service_started
+
+volumes:
+  captain-data:

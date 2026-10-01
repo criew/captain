@@ -1,0 +1,27 @@
+// Admin-Config des lokalen Test-Setups (compose.yml): Ollama auf dem Docker-Host.
+// Wird als /etc/captain/opencode.jsonc eingebunden; Sicherheitsbasis siehe base.jsonc.
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Default-Modell kommt aus infra/opencode/.env (OPENCODE_MODEL).
+  "model": "{env:OPENCODE_MODEL}",
+
+  "providers": {
+    // Lokales Ollama auf dem Docker-Host (OpenAI-kompatibel). Modelle werden
+    // automatisch ueber die native Ollama-API am selben Pfadpraefix entdeckt.
+    "ollama": {
+      "settings": {
+        "baseURL": "{env:OLLAMA_BASE_URL}"
+      },
+      // Discovery meldet die maximale Modell-Kontextlaenge (z. B. 262k), Ollama
+      // laedt Modelle aber mit seiner eigenen num_ctx (hier: 16k, siehe
+      // `ollama ps`) und schneidet ueberlange Prompts stillschweigend ab.
+      // Das Limit hier an OLLAMA_CONTEXT_LENGTH des Hosts angleichen, damit
+      // opencode rechtzeitig kompaktiert.
+      "models": {
+        "qwen3:4b": { "limit": { "context": 16384, "output": 4096 } },
+        "gemma4:e4b": { "limit": { "context": 16384, "output": 4096 } }
+      }
+    }
+  }
+}

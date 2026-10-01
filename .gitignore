@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Lokale Konfiguration mit Geheimnissen
+config.json
+captain.json
+*.env
+generated.env
+
+# Laufzeitdaten (Session-Store)
+/data/
+
+# Backups / Logs
+*.bak
+*.bak_*
+*.log

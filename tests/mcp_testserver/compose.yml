@@ -1,0 +1,25 @@
+# Test-MCP-Server als Zusatz-Service zum Betriebs-Stack (nur für Probeläufe):
+#
+#   docker compose -f compose.deploy.yml -f tests/mcp_testserver/compose.yml up -d
+#
+# In mcp.env:        MCP_TEST_TOKEN=<beliebig>
+# In $CAPTAIN_HOME/config/opencode.jsonc:
+#   "mcp": { "servers": { "testmcp": {
+#       "type": "remote", "url": "http://mcp-test:8000/mcp",
+#       "headers": { "Authorization": "Bearer {env:MCP_TEST_TOKEN}" },
+#       "oauth": false, "codemode": false } } },
+#   "permissions": [ { "action": "testmcp_wuerfeln", "resource": "*", "effect": "allow" } ]
+#
+# Erwartung: "wuerfeln" funktioniert im Chat, "geheim" wird nie aufgerufen
+# (Log: docker compose … logs mcp-test | grep MCP-CALL).
+services:
+  mcp-test:
+    image: python:3.12-slim
+    command: ["python", "-u", "/srv/server.py"]
+    env_file:
+      - path: mcp.env
+        required: false
+    volumes:
+      # relativ zum Projektverzeichnis (Ort von compose.deploy.yml)
+      - ./tests/mcp_testserver:/srv:ro
+    restart: unless-stopped

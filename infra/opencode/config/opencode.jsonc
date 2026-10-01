@@ -1,0 +1,73 @@
+// Admin-Config fuer opencode (editierbar, OPENCODE_CONFIG=/etc/captain/opencode.jsonc).
+// Im Betrieb liegt sie unter $CAPTAIN_HOME/config/opencode.jsonc; nach einer
+// Aenderung: docker compose -f compose.deploy.yml restart opencode
+//
+// Hier gehoeren hin: Provider, Modelle, Limits, MCP-Server und deren
+// Freigaben. Die Sicherheitsbasis (globales "* * deny", Policies gegen Shell,
+// Web, Subagenten, Skills, Rueckfragen, fremde Verzeichnisse; keine
+// Projekt-Config; Session-Regeln des Bots) steckt fest im Image bzw. im Bot
+// und kann von hier aus nicht gelockert werden. Geheimnisse nie hier
+// eintragen, sondern in die .env bzw. mcp.env und per {env:NAME} einsetzen
+// (nur LLM_*, OLLAMA_*, MCP_*, *_API_KEY, OPENCODE_MODEL/VARIANT).
+//
+// Erlaubt sind NUR: model, providers (eingebaute Pakete), mcp (nur
+// "type": "remote"), permissions (allow/deny), compaction – je Block mit
+// fester Schluessel-Liste (README, Kapitel 7).
+// NICHT VERWENDEN – hebelt die Sicherheit aus (das Startskript verwirft es mit
+// einer Warnung im Log): plugins, lokale MCP-Server ("type": "local"),
+// agents, default_agent, commands, skills, instructions, references, shell,
+// enterprise, experimental, tool_output, media, username, worktree, {file:…}.
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Standardmodell (provider/modell). compose.deploy.yml setzt OPENCODE_MODEL,
+  // Default llm/$LLM_MODEL.
+  "model": "{env:OPENCODE_MODEL}",
+
+  "providers": {
+    // Generischer OpenAI-kompatibler Chat-Endpunkt mit Bearer-Token:
+    // vLLM (LLM_BASE_URL=https://host/v1), Open WebUI
+    // (LLM_BASE_URL=https://host/api) oder Ollama (http://host:11434/v1).
+    "llm": {
+      "name": "LLM",
+      "package": "@ai-sdk/openai-compatible",
+      "settings": {
+        "baseURL": "{env:LLM_BASE_URL}",
+        "apiKey": "{env:LLM_API_KEY}"
+      },
+      // Modelle des Servers. Der Schluessel ist der Modellname beim Server;
+      // limit.context an die tatsaechliche Kontextlaenge des Servers anpassen
+      // (vLLM: --max-model-len), damit opencode rechtzeitig kompaktiert.
+      "models": {
+        "{env:LLM_MODEL}": {
+          "name": "{env:LLM_MODEL}",
+          "limit": { "context": 32768, "output": 4096 }
+        }
+        // Weitere Modelle desselben Servers, z. B.:
+        // "qwen3-32b": { "name": "Qwen3 32B", "limit": { "context": 32768, "output": 8192 } }
+      }
+    }
+  },
+
+  // MCP-Server: nur Remote (HTTP). Nur hier definiert, gilt fuer alle Chats.
+  // "codemode": false und "oauth": false setzt das Startskript immer.
+  "mcp": {
+    "servers": {
+      // "beispiel": {
+      //   "type": "remote",
+      //   "url": "https://mcp.example.org/mcp",
+      //   "headers": { "Authorization": "Bearer {env:MCP_BEISPIEL_TOKEN}" },
+      //   "oauth": false,
+      //   "codemode": false
+      // }
+    }
+  },
+
+  // Freigaben: hinter dem globalen "* * deny" der Sicherheitsbasis. Nur
+  // ausdruecklich genannte MCP-Tools (<server>_<tool>, Resource "*") werden
+  // dem Modell angeboten. Keine Wildcards wie "*" oder "beispiel_*" noetig –
+  // lieber jedes Tool einzeln.
+  "permissions": [
+    // { "action": "beispiel_suche", "resource": "*", "effect": "allow" }
+  ]
+}

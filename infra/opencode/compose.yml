@@ -1,0 +1,28 @@
+# opencode-Server (headless) fuer das Captain-Test-Setup. Eingebunden ueber das
+# Root-compose.yml. Betrieb: siehe compose.deploy.yml im Repo-Root.
+services:
+  opencode:
+    build:
+      context: .
+      args:
+        OPENCODE_VERSION: "2.0.20"
+    image: captain-opencode:2.0.20
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "4096:4096"
+    volumes:
+      # Session-Verzeichnisse /tmp/captain/<session-id>, geteilt mit dem Bot
+      # (gleicher Name im Projekt "captain"); uebersteht Neustarts.
+      - captain-tmp:/tmp/captain
+      - opencode-data:/root/.local/share/opencode
+      # Admin-Config des Test-Setups (Ollama); Sicherheitsbasis steckt im Image.
+      - ./config/opencode.test.jsonc:/etc/captain/opencode.jsonc:ro
+
+volumes:
+  captain-tmp:
+  opencode-data:

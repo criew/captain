@@ -1,0 +1,188 @@
+data: {"id":"evt_0f3373664001ln5lWXXs4sBVq2","type":"server.connected","data":{}}
+
+: heartbeat
+
+data: {"id":"evt_0f33739d8001oChhNmN321fifb","created":1790786877913,"type":"session.inbox.enqueued","location":{"directory":"/tmp"},"data":{"inboxID":"msg_0f33739d50016A63BrJIjxn0B0","sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","item":{"type":"user","payload":{"text":"Schreib zuerst genau den Satz 'Ich sehe nach.' Rufe danach das Shell-Tool mit `echo hallo` auf und nenne anschließend in einem Satz die Ausgabe."},"delivery":"steer"}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":1,"version":1}}
+
+data: {"id":"evt_0f33739de001PiCFpg0jN73h7I","created":1790786877919,"type":"session.execution.started","data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":2,"version":1}}
+
+
+data: {"id":"evt_0f33739f2001DwKesKiSAlpiOg","created":1790786877938,"type":"session.inbox.delivered","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","inboxID":"msg_0f33739d50016A63BrJIjxn0B0"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":4,"version":1}}
+
+data: {"id":"evt_0f3373eaf001K193st2C1HDtka","created":1790786879152,"type":"session.step.started","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","agent":"build","model":{"id":"gemma4:e4b","providerID":"ollama"},"assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","started":1790786877965},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":5,"version":1}}
+
+data: {"id":"evt_0f3373ebf0014GfeEwhwtKy9su","created":1790786879167,"type":"session.reasoning.started","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0,"state":{"reasoningField":"reasoning"}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":6,"version":1}}
+
+data: {"id":"evt_0f3373f34001cdPK2TGkfb2UtT","created":1790786879284,"type":"session.reasoning.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0,"delta":"The user"}}
+
+data: {"id":"evt_0f3373fac001t6s1g1XviGa2ux","created":1790786879405,"type":"session.reasoning.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0,"delta":" wants me"}}
+
+data: {"id":"evt_0f337404d0011sTQ7ewZN4yH2H","created":1790786879565,"type":"session.reasoning.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0,"delta":" to perform"}}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+data: {"id":"evt_0f3375dac0017BvEZKB9M6QVCQ","created":1790786887084,"type":"session.text.started","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":7,"version":1}}
+
+data: {"id":"evt_0f3375e1b001jtqI47YgjVuewY","created":1790786887195,"type":"session.text.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0,"delta":"Ich sehe"}}
+
+data: {"id":"evt_0f3375eae001G06PDvU7Dtq2ez","created":1790786887342,"type":"session.text.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0,"delta":" nach."}}
+
+data: {"id":"evt_0f3375f43001sfryVWNU6tAHcp","created":1790786887491,"type":"session.text.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0,"delta":"\n\n"}}
+
+data: {"id":"evt_0f3376307001KFFwCJxJnmp1pM","created":1790786888455,"type":"session.tool.input.started","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","id":"call_sipfhfba","name":"shell"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":8,"version":1}}
+
+data: {"id":"evt_0f3376352001AhARWNHCC2HvbC","created":1790786888530,"type":"session.reasoning.ended","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0,"text":"The user wants me to perform three actions:\n1.  Write the exact sentence: \"Ich sehe nach.\"\n2.  Call the `shell` tool with the command `echo hallo`.\n3.  In a single sentence, state the output of the `shell` tool call.\n\nI will execute these steps sequentially.\n\nStep 1: Write the sentence.\nStep 2: Call `shell` tool.\nStep 3: Combine the result into the final response.","state":{"reasoningField":"reasoning"}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":9,"version":1}}
+
+data: {"id":"evt_0f3376357001lEw9rJg5hWoK2v","created":1790786888535,"type":"session.tool.input.ended","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","id":"call_sipfhfba","text":"{\"command\":\"echo hallo\"}"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":10,"version":1}}
+
+data: {"id":"evt_0f337635c001iZ1wF95uUoDrDM","created":1790786888540,"type":"session.tool.called","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","id":"call_sipfhfba","input":{"command":"echo hallo"},"executed":false},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":11,"version":1}}
+
+data: {"id":"evt_0f3376361001C0oSzAsuu1YD3l","created":1790786888545,"type":"session.text.ended","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","ordinal":0,"text":"Ich sehe nach.\n\n"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":12,"version":1}}
+
+data: {"id":"evt_0f3376366001WlXbnP9pXrNvuB","created":1790786888550,"type":"session.step.streamed","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":13,"version":1}}
+
+data: {"id":"evt_0f3376381001biMwOapQqleGVu","created":1790786888577,"type":"shell.created","location":{"directory":"/tmp"},"data":{"info":{"id":"sh_0f3376378001nKSEiITs3Z5QK0","status":"running","command":"echo hallo","cwd":"/tmp","shell":"/usr/bin/bash","file":"/root/.local/share/opencode/shell/470c8549ef01a2a9d3c85b22965766cefc874134/sh_0f3376378001nKSEiITs3Z5QK0.out","metadata":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2"},"time":{"started":1790786888568}}}}
+
+data: {"id":"evt_0f3376382001U7Vd4Ej5j4yDq8","created":1790786888578,"type":"session.tool.progress","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","id":"call_sipfhfba","metadata":{"shellID":"sh_0f3376378001nKSEiITs3Z5QK0"}}}
+
+
+data: {"id":"evt_0f337638c0015BeIIxmdR1QmZF","created":1790786888588,"type":"session.tool.success","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","id":"call_sipfhfba","content":[{"type":"text","text":"hallo\n"}],"metadata":{"status":"completed","truncated":false,"exit":0},"executed":false},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":14,"version":2}}
+
+data: {"id":"evt_0f33763900010keCZS0kry0Gay","created":1790786888592,"type":"session.step.ended","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33739fd001gJB2x7XrN6qKUu","finish":"tool-calls","rawFinish":"tool_calls","cost":0,"tokens":{"input":40,"output":126,"reasoning":0,"cache":{"read":6002,"write":0}}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":15,"version":1}}
+
+data: {"id":"evt_0f3376395001fezUHhY6aI4YVG","created":1790786888597,"type":"session.usage.updated","data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","cost":0,"tokens":{"input":40,"output":126,"reasoning":0,"cache":{"read":6002,"write":0}}}}
+
+data: {"id":"evt_0f33767b8001djktGXrNO5m52k","created":1790786889656,"type":"session.step.started","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","agent":"build","model":{"id":"gemma4:e4b","providerID":"ollama"},"assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","started":1790786888636},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":16,"version":1}}
+
+data: {"id":"evt_0f33767c2001ltD6Vc0dUgM3N2","created":1790786889666,"type":"session.reasoning.started","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0,"state":{"reasoningField":"reasoning"}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":17,"version":1}}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+: heartbeat
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+data: {"id":"evt_0f3378f96001EPZLDVznzncWau","created":1790786899862,"type":"session.text.started","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":18,"version":1}}
+
+data: {"id":"evt_0f3379007001bZwshQKlCllVUN","created":1790786899975,"type":"session.text.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0,"delta":"Die Ausgabe"}}
+
+data: {"id":"evt_0f3379091001SMnVrCUPcxXLsT","created":1790786900113,"type":"session.text.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0,"delta":" des Bef"}}
+
+data: {"id":"evt_0f337912c001su7Mi5j9sb1LmQ","created":1790786900268,"type":"session.text.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0,"delta":"ehls"}}
+
+data: {"id":"evt_0f33791cc0019We36Aiqi1MAu7","created":1790786900428,"type":"session.text.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0,"delta":" ist '"}}
+
+data: {"id":"evt_0f337926c001yv27p1rRhiH60J","created":1790786900588,"type":"session.text.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0,"delta":"hallo"}}
+
+data: {"id":"evt_0f33792ef001VQEcJzzDajYqyd","created":1790786900719,"type":"session.reasoning.ended","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0,"text":"The user requested three actions:\n1.  Write the exact sentence \"Ich sehe nach.\". (Done, printed before the tool call)\n2.  Run `shell echo hallo`. (Done, received output `hallo\\n`)\n3.  State the output in a single sentence. (Need to do this now).\n\nThe output was `hallo\\n`. I will state this in a sentence as requested.\n\nThe final response structure should be:\n1.  \"Ich sehe nach.\" (Done)\n2.  (A natural break/separator)\n3.  The statement of the output.","state":{"reasoningField":"reasoning"}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":19,"version":1}}
+
+data: {"id":"evt_0f33792f4001IeP3ab1FlvgsR5","created":1790786900724,"type":"session.text.delta","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0,"delta":"'."}}
+
+data: {"id":"evt_0f33792f50011smnoZFaPwq23q","created":1790786900725,"type":"session.text.ended","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","ordinal":0,"text":"Die Ausgabe des Befehls ist 'hallo'."},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":20,"version":1}}
+
+data: {"id":"evt_0f33792fa001Jg5Sn7oldSq0LP","created":1790786900730,"type":"session.step.streamed","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":21,"version":1}}
+
+data: {"id":"evt_0f33792fb001tlYa3zSetjnHGU","created":1790786900731,"type":"session.step.ended","location":{"directory":"/tmp"},"data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","assistantMessageID":"msg_0f33763a5001AcibjuGSHzBbMW","finish":"stop","rawFinish":"stop","cost":0,"tokens":{"input":39,"output":144,"reasoning":0,"cache":{"read":6147,"write":0}}},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":22,"version":1}}
+
+data: {"id":"evt_0f33792fd0014aLQUM5bJ4ni2s","created":1790786900733,"type":"session.usage.updated","data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2","cost":0,"tokens":{"input":79,"output":270,"reasoning":0,"cache":{"read":12149,"write":0}}}}
+
+data: {"id":"evt_0f33792fe001Y5NgmIqVme32Eo","created":1790786900734,"type":"session.execution.succeeded","data":{"sessionID":"ses_f0cc8ca5affeIBah6AsDYihxA2"},"durable":{"aggregateID":"ses_f0cc8ca5affeIBah6AsDYihxA2","seq":23,"version":1}}

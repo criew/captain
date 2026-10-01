@@ -1,0 +1,186 @@
+{
+ "data": [
+  {
+   "id": "msg_0f3379a75001uRLzb1Yem6eKNW",
+   "time": {
+    "created": 1790786902645
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_0f337936500121n5GX2MkGZeiF",
+   "time": {
+    "created": 1790786900850,
+    "streamed": 1790786902640,
+    "completed": 1790786902642
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "gemma4:e4b",
+    "providerID": "ollama"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Hallo Welt"
+    }
+   ],
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0,
+   "tokens": {
+    "input": 61,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 6042,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0f337934d001NkEC5DRZgzavbc",
+   "time": {
+    "created": 1790786900830
+   },
+   "text": "Antworte nur mit: Hallo Welt",
+   "type": "user"
+  },
+  {
+   "id": "msg_0f33792fe001Y5NgmIqVme32Eo",
+   "time": {
+    "created": 1790786900734
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_0f33763a5001AcibjuGSHzBbMW",
+   "time": {
+    "created": 1790786888636,
+    "streamed": 1790786900730,
+    "completed": 1790786900731
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "gemma4:e4b",
+    "providerID": "ollama"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The user requested three actions:\n1.  Write the exact sentence \"Ich sehe nach.\". (Done, printed before the tool call)\n2.  Run `shell echo hallo`. (Done, received output `hallo\\n`)\n3.  State the output in a single sentence. (Need to do this now).\n\nThe output was `hallo\\n`. I will state this in a sentence as requested.\n\nThe final response structure should be:\n1.  \"Ich sehe nach.\" (Done)\n2.  (A natural break/separator)\n3.  The statement of the output.",
+     "state": {
+      "reasoningField": "reasoning"
+     },
+     "time": {
+      "created": 1790786889666,
+      "completed": 1790786900719
+     }
+    },
+    {
+     "type": "text",
+     "text": "Die Ausgabe des Befehls ist 'hallo'."
+    }
+   ],
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0,
+   "tokens": {
+    "input": 39,
+    "output": 144,
+    "reasoning": 0,
+    "cache": {
+     "read": 6147,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0f33739fd001gJB2x7XrN6qKUu",
+   "time": {
+    "created": 1790786877965,
+    "streamed": 1790786888550,
+    "completed": 1790786888592
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "gemma4:e4b",
+    "providerID": "ollama"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The user wants me to perform three actions:\n1.  Write the exact sentence: \"Ich sehe nach.\"\n2.  Call the `shell` tool with the command `echo hallo`.\n3.  In a single sentence, state the output of the `shell` tool call.\n\nI will execute these steps sequentially.\n\nStep 1: Write the sentence.\nStep 2: Call `shell` tool.\nStep 3: Combine the result into the final response.",
+     "state": {
+      "reasoningField": "reasoning"
+     },
+     "time": {
+      "created": 1790786879167,
+      "completed": 1790786888530
+     }
+    },
+    {
+     "type": "text",
+     "text": "Ich sehe nach.\n\n"
+    },
+    {
+     "type": "tool",
+     "id": "call_sipfhfba",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "command": "echo hallo"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "hallo\n"
+       }
+      ],
+      "metadata": {
+       "status": "completed",
+       "truncated": false,
+       "exit": 0
+      }
+     },
+     "time": {
+      "created": 1790786888455,
+      "ran": 1790786888540,
+      "completed": 1790786888588
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 40,
+    "output": 126,
+    "reasoning": 0,
+    "cache": {
+     "read": 6002,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0f33739d50016A63BrJIjxn0B0",
+   "time": {
+    "created": 1790786877938
+   },
+   "text": "Schreib zuerst genau den Satz 'Ich sehe nach.' Rufe danach das Shell-Tool mit `echo hallo` auf und nenne anschließend in einem Satz die Ausgabe.",
+   "type": "user"
+  }
+ ],
+ "cursor": {
+  "previous": "eyJpZCI6Im1zZ18wZjMzNzlhNzUwMDF1Ukx6YjFZZW02ZUtOVyIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6InByZXZpb3VzIn0",
+  "next": "eyJpZCI6Im1zZ18wZjMzNzM5ZDUwMDE2QTYzQnJKSWp4bjBCMCIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6Im5leHQifQ"
+ }
+}

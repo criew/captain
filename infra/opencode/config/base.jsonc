@@ -1,0 +1,68 @@
+// SICHERHEITSBASIS – fest im Image (/root/.config/opencode/opencode.jsonc).
+// Nicht editierbar im Betrieb; Aenderungen nur per Rebuild.
+//
+// Headless und restriktiv: keine Tools ausser Dateizugriff im eigenen
+// Session-Verzeichnis (/tmp/captain/<id>). Die Freigaben dafuer setzt der Bot
+// pro Session beim Anlegen (POST /api/session, Feld "permissions").
+//
+// Editierbar (Provider, Modelle, Limits, MCP-Server und deren Freigaben) ist
+// die Admin-Config /etc/captain/opencode.jsonc; start.mjs uebernimmt davon nur
+// eine Allowlist und gibt opencode die bereinigte Kopie (OPENCODE_CONFIG). So fuehrt
+// opencode 2.0.20 die Quellen zusammen (aus dem Binary ermittelt, per
+// tests/test_config_layers_integration.py belegt):
+//
+//   Reihenfolge: global (diese Datei) -> OPENCODE_CONFIG (Admin) -> Projekt
+//   (abgeschaltet) -> OPENCODE_CONFIG_CONTENT (Image-ENV, feste Schalter).
+//
+// - "permissions" aller Quellen werden in dieser Reihenfolge aneinandergehaengt,
+//   danach kommen die Session-Regeln; die LETZTE passende Regel gewinnt. Das
+//   "* * deny" hier ist also die Grundlage, die Admin-Config darf gezielt
+//   freigeben (z. B. MCP-Tools).
+// - "experimental.policies" aller Quellen werden gesammelt, wobei bei gleichem
+//   Treffer die Policy der FRUEHESTEN Quelle gewinnt. Die Policies hier sind
+//   damit eine harte Obergrenze, die weder die Admin-Config noch
+//   Session-Regeln aufheben koennen ("Blocked by configuration policy").
+// - Einzelwerte (share, snapshots, websearch, ...) nimmt opencode aus der
+//   LETZTEN Quelle, die sie setzt – deshalb stehen sie im Image als
+//   OPENCODE_CONFIG_CONTENT (siehe Dockerfile), nicht hier.
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Regelwerk: Agent-Defaults, dann diese Regeln, dann die der Admin-Config,
+  // dann die Session-Regeln; die LETZTE passende Regel gewinnt, ohne Treffer
+  // gilt "ask" (wuerde headless haengen). Deshalb zuerst alles verbieten. Eine
+  // Aktion, deren letzte passende Regel "resource: *, deny" ist, bietet
+  // opencode dem Modell gar nicht erst als Tool an.
+  // Aktionen in v2.0.20: read, edit (edit/write/apply_patch), glob, grep,
+  // shell, webfetch, websearch, subagent, skill, question, external_directory,
+  // execute (Code Mode), opencode_list_mcp_resources,
+  // opencode_read_mcp_resource und MCP-Tools als <server>_<tool>.
+  //
+  // Code Mode ("execute"): ein Skript-Tool mit eigenem fetch (Netzzugriff),
+  // ueber das opencode MCP-Tools gebuendelt anbietet. Es wird NICHT ueber die
+  // Policies geprueft; gesperrt ist es durch diese Regel und – unabhaengig
+  // von der Admin-Config – durch die Session-Regeln des Bots, die
+  // shell/webfetch/websearch/subagent/skill/question/execute/opencode_*/
+  // external_directory zum Schluss verbieten. Fuer MCP-Server setzt
+  // start.mjs "codemode": false, dann erscheinen freigegebene Tools einzeln.
+  "permissions": [
+    { "action": "*", "resource": "*", "effect": "deny" }
+  ],
+
+  "experimental": {
+    // Harte Obergrenze (Policy-Hook nach den Regeln). Format "<aktion>:<ressource>".
+    "policies": [
+      { "action": "permission", "resource": "shell:*", "effect": "deny" },
+      { "action": "permission", "resource": "webfetch:*", "effect": "deny" },
+      { "action": "permission", "resource": "websearch:*", "effect": "deny" },
+      { "action": "permission", "resource": "subagent:*", "effect": "deny" },
+      { "action": "permission", "resource": "skill:*", "effect": "deny" },
+      { "action": "permission", "resource": "question:*", "effect": "deny" },
+      { "action": "permission", "resource": "external_directory:*", "effect": "deny" },
+      // MCP-Ressourcen (opencode_list/read_mcp_resource). MCP-Tools heissen
+      // <server>_<tool> und fallen nicht darunter – ausser ein Server hiesse
+      // "opencode…" (dann waeren seine Tools hier gesperrt).
+      { "action": "permission", "resource": "opencode_*", "effect": "deny" }
+    ]
+  }
+}

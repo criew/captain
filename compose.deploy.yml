@@ -1,0 +1,107 @@
+# Captain im Betrieb gegen ein bestehendes Mattermost (README: „Betrieb mit
+# bestehendem Mattermost“). Nur opencode + Bot, kein Mattermost/Postgres.
+#
+#   cp .env.example .env && chmod 600 .env     # ausfüllen
+#   docker compose -f compose.deploy.yml up -d --build
+#
+# Alles steuert die .env neben dieser Datei. Alle Daten liegen unter
+# CAPTAIN_HOME (Default /opt/captain) – das ist auch das Backup-Ziel:
+#
+#   config/    opencode.jsonc, AGENTS.md (editierbar, opencode liest sie nur)
+#   data/      Bot: Session-Store sessions.json, Nachhol-Cursor
+#   sessions/  Session-Verzeichnisse /tmp/captain/<session-id> (opencode + Bot)
+#   opencode/  opencode-Datenbank (Sessions, Nachrichten)
+# Eigener Projektname, damit der Betrieb nicht mit dem Test-Setup ("captain")
+# kollidiert.
+name: captain-prod
+
+services:
+  # Legt CAPTAIN_HOME an und kopiert fehlende Config-Vorlagen nach config/
+  # (vorhandene Dateien bleiben unangetastet). Läuft bei jedem Start kurz.
+  init:
+    build:
+      context: infra/opencode
+      args:
+        OPENCODE_VERSION: "2.0.20"
+    image: captain/opencode:2.0.20
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        mkdir -p /home/captain/config /home/captain/data /home/captain/sessions /home/captain/opencode
+        chmod 700 /home/captain /home/captain/config /home/captain/data /home/captain/sessions /home/captain/opencode
+        for f in /opt/captain/defaults/*; do
+          [ -e "/home/captain/config/$${f##*/}" ] || cp "$$f" /home/captain/config/
+        done
+    volumes:
+      - ${CAPTAIN_HOME:-/opt/captain}:/home/captain
+    restart: "no"
+
+  opencode:
+    build:
+      context: infra/opencode
+      args:
+        OPENCODE_VERSION: "2.0.20"
+    image: captain/opencode:2.0.20
+    restart: unless-stopped
+    # Nicht die ganze .env: opencode bekommt nur, was es braucht (kein
+    # MM_BOT_TOKEN). Geheimnisse für MCP-Server (MCP_*) stehen in mcp.env.
+    # Das Startskript (infra/opencode/start.mjs) setzt {env:…} der
+    # Admin-Config selbst ein (nur LLM_*, OLLAMA_*, MCP_*, *_API_KEY,
+    # OPENCODE_MODEL/VARIANT), reicht opencode nur eine kleine Allowlist weiter
+    # und setzt die Sicherheitsschalter (OPENCODE_CONFIG, OPENCODE_CONFIG_CONTENT,
+    # Projekt-Config aus) fest.
+    env_file:
+      - path: mcp.env
+        required: false
+    environment:
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD in .env setzen}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-llm/${LLM_MODEL:-}}
+      OPENCODE_VARIANT: ${OPENCODE_VARIANT:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Nur zum Debuggen (nie öffentlich): Port auf dem Host freigeben.
+    # ports:
+    #   - "127.0.0.1:4096:4096"
+    volumes:
+      # Admin-Config (Provider, Modelle, MCP, AGENTS.md) – nur lesbar
+      - ${CAPTAIN_HOME:-/opt/captain}/config:/etc/captain:ro
+      - ${CAPTAIN_HOME:-/opt/captain}/sessions:/tmp/captain
+      - ${CAPTAIN_HOME:-/opt/captain}/opencode:/root/.local/share/opencode
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  captain:
+    build: .
+    image: captain/bot:latest
+    restart: unless-stopped
+    # Zeit zum geordneten Beenden (laufende Antworten, Nachhol-Cursor sichern)
+    stop_grace_period: 20s
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      OPENCODE_URL: http://opencode:4096
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-llm/${LLM_MODEL:-}}
+      SESSIONS_DIR: /tmp/captain
+      DATA_DIR: /data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${CAPTAIN_HOME:-/opt/captain}/data:/data
+      # gleicher Pfad wie im opencode-Container
+      - ${CAPTAIN_HOME:-/opt/captain}/sessions:/tmp/captain
+      # z. B. Persona: CAPTAIN_SYSTEM_PROMPT_FILE=/config/persona.md
+      - ${CAPTAIN_HOME:-/opt/captain}/config:/config:ro
+    depends_on:
+      opencode:
+        condition: service_healthy

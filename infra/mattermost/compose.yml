@@ -1,0 +1,64 @@
+# Mattermost 9.11.15 (Team Edition) + Postgres fuer das Captain-Test-Setup.
+# Wird ueber das Root-compose.yml (include:) eingebunden. Nur fuer lokale Tests:
+# Passwoerter sind absichtlich trivial, Postgres ist nicht nach aussen offen.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mmuser_test_password
+      POSTGRES_DB: mattermost
+    volumes:
+      - mm-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:9.11.15
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8065:8065"
+    environment:
+      TZ: Europe/Berlin
+      # Datenbank
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:mmuser_test_password@postgres:5432/mattermost?sslmode=disable&connect_timeout=10
+      # Server
+      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+      MM_SERVICESETTINGS_LISTENADDRESS: ":8065"
+      # Bots mit Token
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_SERVICESETTINGS_DISABLEBOTSWHENOWNERISDEACTIVATED: "false"
+      # mmctl --local im Container (docker compose exec mattermost mmctl --local ...)
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+      # Kein Rate-Limit (Streaming per Post-Edit, E2E-Tests)
+      MM_RATELIMITSETTINGS_ENABLE: "false"
+      # Test-Instanz: keine Mails, keine Telemetrie, keine Update-Hinweise
+      MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS: "false"
+      MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "false"
+      MM_LOGSETTINGS_ENABLEDIAGNOSTICS: "false"
+      MM_SERVICESETTINGS_ENABLESECURITYFIXALERT: "false"
+      MM_LOGSETTINGS_CONSOLELEVEL: INFO
+    volumes:
+      - mm-config:/mattermost/config
+      - mm-data:/mattermost/data
+      - mm-logs:/mattermost/logs
+      - mm-plugins:/mattermost/plugins
+      - mm-client-plugins:/mattermost/client/plugins
+
+volumes:
+  mm-postgres:
+  mm-config:
+  mm-data:
+  mm-logs:
+  mm-plugins:
+  mm-client-plugins:
