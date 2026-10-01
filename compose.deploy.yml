@@ -15,12 +15,27 @@
 # kollidiert.
 name: captain-prod
 
+# Proxy (README: „Hinter einem Proxy“). Bewusst eigene Variablennamen aus der
+# .env: ein HTTP_PROXY der Host-Shell oder aus ~/.docker/config.json zeigt oft
+# auf einen Namen, den nur der Host auflösen kann. Leer = kein Proxy. Die
+# interne Verbindung Bot → opencode geht nie über den Proxy.
+x-proxy-env: &proxy-env
+  HTTP_PROXY: ${CAPTAIN_HTTP_PROXY:-}
+  HTTPS_PROXY: ${CAPTAIN_HTTPS_PROXY:-}
+  http_proxy: ${CAPTAIN_HTTP_PROXY:-}
+  https_proxy: ${CAPTAIN_HTTPS_PROXY:-}
+  NO_PROXY: opencode,captain,localhost,127.0.0.1,host.docker.internal${CAPTAIN_NO_PROXY:+,${CAPTAIN_NO_PROXY}}
+  no_proxy: opencode,captain,localhost,127.0.0.1,host.docker.internal${CAPTAIN_NO_PROXY:+,${CAPTAIN_NO_PROXY}}
+
 services:
   # Legt CAPTAIN_HOME an und kopiert fehlende Config-Vorlagen nach config/
   # (vorhandene Dateien bleiben unangetastet). Läuft bei jedem Start kurz.
   init:
     build:
       context: infra/opencode
+      # Build im Host-Netz: DNS/hosts/Proxy des Hosts gelten auch für
+      # apt-get/npm/pip (sonst z. B. „Cannot connect to proxy … name resolution“)
+      network: host
       args:
         OPENCODE_VERSION: "2.0.20"
     image: captain/opencode:2.0.20
@@ -41,6 +56,7 @@ services:
   opencode:
     build:
       context: infra/opencode
+      network: host
       args:
         OPENCODE_VERSION: "2.0.20"
     image: captain/opencode:2.0.20
@@ -56,6 +72,7 @@ services:
       - path: mcp.env
         required: false
     environment:
+      <<: *proxy-env
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD in .env setzen}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-llm/${LLM_MODEL:-}}
       OPENCODE_VARIANT: ${OPENCODE_VARIANT:-}
@@ -81,7 +98,9 @@ services:
         condition: service_completed_successfully
 
   captain:
-    build: .
+    build:
+      context: .
+      network: host
     image: captain/bot:latest
     restart: unless-stopped
     # Zeit zum geordneten Beenden (laufende Antworten, Nachhol-Cursor sichern)
@@ -90,6 +109,7 @@ services:
       - path: .env
         required: true
     environment:
+      <<: *proxy-env
       OPENCODE_URL: http://opencode:4096
       OPENCODE_MODEL: ${OPENCODE_MODEL:-llm/${LLM_MODEL:-}}
       SESSIONS_DIR: /tmp/captain

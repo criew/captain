@@ -107,6 +107,7 @@ Variablen der `.env` (Details: `.env.example` und „Konfiguration“):
 | `HISTORY_MAX_POSTS`, `HISTORY_MAX_CHARS` | nein (50 / 8000) | Vorgeschichte neuer Kanal-Unterhaltungen |
 | `MAX_ATTACHMENT_MB` | nein (20) | größter Anhang in MB, der geladen und an opencode gegeben wird (`0` = keine Grenze) |
 | `LOG_LEVEL` | nein (`INFO`) | Log-Level des Bots |
+| `CAPTAIN_HTTP_PROXY`, `CAPTAIN_HTTPS_PROXY`, `CAPTAIN_NO_PROXY` | nein | Proxy für ausgehende Verbindungen (siehe „Hinter einem Proxy“) |
 | `MCP_…` in **`mcp.env`** | nein | Geheimnisse für MCP-Server (Vorlage `mcp.env.example`; `{env:MCP_…}` in der Config) |
 
 Der Bot bekommt die ganze `.env`. Der opencode-Container bekommt davon nur
@@ -132,6 +133,34 @@ docker compose -f compose.deploy.yml logs -f captain    # „Captain läuft als 
 Smoke-Test: `@captain` eine DM schreiben (Antwort direkt im Chat), dann in
 einem Kanal `@captain Hallo` (Antwort als Thread unter dem Post), dort
 `!help`.
+
+#### Hinter einem Proxy
+
+- **Build:** Die Images werden im Host-Netz gebaut (`build.network: host`),
+  `apt-get`/`npm`/`pip` sehen also DNS, `/etc/hosts` und Proxy-Einstellungen
+  des Hosts. Braucht der Host für Internetzugriff einen Proxy, muss Docker ihn
+  kennen – `~/.docker/config.json` (`"proxies": {"default": {"httpProxy": …,
+  "httpsProxy": …, "noProxy": …}}`) oder die Systemd-Konfiguration des
+  Docker-Daemons.
+  Fehlerbild ohne das: `ProxyError('Cannot connect to proxy.' … Temporary
+  failure in name resolution)` bei `pip install` bzw. hängendes `apt-get`.
+- **Laufzeit:** Bot und opencode nutzen **nur** `CAPTAIN_HTTP_PROXY` /
+  `CAPTAIN_HTTPS_PROXY` aus der `.env` – ein Proxy aus der Host-Shell oder
+  `~/.docker/config.json` wird bewusst überschrieben, weil sein Name im
+  Container oft nicht auflösbar ist. Den Proxy daher als IP oder per DNS
+  auflösbaren Namen angeben. Ziele, die direkt erreichbar sind (internes
+  Mattermost, vLLM/Open WebUI), in `CAPTAIN_NO_PROXY` eintragen; die interne
+  Verbindung Bot → opencode läuft immer direkt.
+- **DNS in Containern prüfen:** `docker run --rm busybox nslookup <mattermost-host>`.
+  Meldet das `no servers could be reached`, erreichen Container keinen
+  DNS-Server (typisch bei `systemd-resolved` auf dem Host + gesperrtem
+  `8.8.8.8`). Dann dem Docker-Daemon die internen DNS-Server mitgeben –
+  Adressen aus `resolvectl status` bzw. `/run/systemd/resolve/resolv.conf`:
+  ```sh
+  # /etc/docker/daemon.json
+  { "dns": ["10.1.2.3", "10.1.2.4"], "dns-search": ["firma.intern"] }
+  sudo systemctl restart docker
+  ```
 
 ### 6. `CAPTAIN_HOME`
 
