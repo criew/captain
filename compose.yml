@@ -25,6 +25,8 @@ services:
       OPENCODE_URL: http://opencode:4096
       SESSIONS_DIR: /tmp/captain
       DATA_DIR: /data
+      # nur für den Systemhinweis (opencode liest /shared, der Bot nicht)
+      CAPTAIN_SHARED_DIR: ${CAPTAIN_SHARED_DIR:-}
     volumes:
       # Session-Verzeichnisse, gleicher Pfad wie im opencode-Container
       - captain-tmp:/tmp/captain

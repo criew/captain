@@ -1,7 +1,8 @@
 """Führt die Node-Unit-Tests des opencode-Startskripts aus.
 
-``infra/opencode/start.test.mjs`` (Admin-Config, Umgebung) und
-``infra/opencode/webfetch.test.mjs`` (webfetch-Allowlist, Egress-Filter).
+``infra/opencode/start.test.mjs`` (Admin-Config, Umgebung),
+``infra/opencode/webfetch.test.mjs`` (webfetch-Allowlist, Egress-Filter) und
+``infra/opencode/shared.test.mjs`` (geteiltes Verzeichnis).
 
 Nutzt ein lokales ``node`` (≥ 18); ohne Node wird übersprungen – im
 Integrationslauf prüft ``tests/test_config_layers_integration.py`` dasselbe
@@ -15,7 +16,7 @@ import subprocess
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TESTS = [ROOT / "infra" / "opencode" / name for name in ("start.test.mjs", "webfetch.test.mjs")]
+TESTS = [ROOT / "infra" / "opencode" / name for name in ("start.test.mjs", "webfetch.test.mjs", "shared.test.mjs")]
 
 
 @pytest.mark.parametrize("tests", TESTS, ids=lambda p: p.name)

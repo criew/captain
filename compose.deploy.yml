@@ -11,6 +11,9 @@
 #   data/      Bot: Session-Store sessions.json, Nachhol-Cursor
 #   sessions/  Session-Verzeichnisse /tmp/captain/<session-id> (opencode + Bot)
 #   opencode/  opencode-Datenbank (Sessions, Nachrichten)
+#
+# Optional liest opencode ein geteiltes Verzeichnis außerhalb davon
+# (CAPTAIN_SHARED_DIR, schreibgeschützt unter /shared).
 # Eigener Projektname, damit der Betrieb nicht mit dem Test-Setup ("captain")
 # kollidiert.
 name: captain-prod
@@ -91,6 +94,13 @@ services:
       # start.mjs macht daraus Policies und einen Egress-Filter; opencode
       # selbst bekommt die Variable nicht. Leer = webfetch aus.
       CAPTAIN_WEBFETCH_ALLOW: ${CAPTAIN_WEBFETCH_ALLOW:-}
+      # Geteiltes Verzeichnis (README: „Geteiltes Verzeichnis (nur lesen)“):
+      # Host-Pfad, leer = aus. start.mjs prüft ihn (absolut, nicht / oder ein
+      # Systemverzeichnis, keine Überschneidung mit CAPTAIN_HOME) und /shared
+      # (schreibgeschützt, keine Symlinks), setzt die Policies und gibt opencode
+      # die Variablen nicht weiter.
+      CAPTAIN_SHARED_DIR: ${CAPTAIN_SHARED_DIR:-}
+      CAPTAIN_HOME: ${CAPTAIN_HOME:-/opt/captain}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Nur zum Debuggen (nie öffentlich): Port auf dem Host freigeben.
@@ -101,6 +111,10 @@ services:
       - ${CAPTAIN_HOME:-/opt/captain}/config:/etc/captain:ro
       - ${CAPTAIN_HOME:-/opt/captain}/sessions:/tmp/captain
       - ${CAPTAIN_HOME:-/opt/captain}/opencode:/root/.local/share/opencode
+      # Geteiltes Verzeichnis, immer schreibgeschützt unter dem festen Pfad
+      # /shared. Ohne CAPTAIN_SHARED_DIR hängt dort das leere Volume
+      # "shared-leer" (kein Host-Verzeichnis) – und es gibt nichts frei.
+      - ${CAPTAIN_SHARED_DIR:-shared-leer}:/shared:ro
     depends_on:
       init:
         condition: service_completed_successfully
@@ -138,3 +152,8 @@ services:
     depends_on:
       opencode:
         condition: service_healthy
+
+volumes:
+  # Platzhalter für /shared, solange CAPTAIN_SHARED_DIR leer ist (bleibt leer:
+  # nur schreibgeschützt eingebunden, das Image hat unter /shared nichts)
+  shared-leer:

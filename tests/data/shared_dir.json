@@ -1,0 +1,43 @@
+{
+  "_comment": "Gemeinsame Testfaelle fuer CAPTAIN_SHARED_DIR: captain/shared.py (tests/test_shared.py) und infra/opencode/shared.mjs (shared.test.mjs) muessen gleich pruefen.",
+  "valid": [
+    { "input": "/srv/captain-shared", "path": "/srv/captain-shared" },
+    { "input": " /srv/captain-shared/ ", "path": "/srv/captain-shared" },
+    { "input": "/srv/captain-shared//", "path": "/srv/captain-shared" },
+    { "input": "/data/Team Infos/wiki", "path": "/data/Team Infos/wiki" },
+    { "input": "/opt/infos", "path": "/opt/infos" },
+    { "input": "/home/admin/captain-infos", "path": "/home/admin/captain-infos" },
+    { "input": "/a", "path": "/a" },
+    { "input": "", "path": null },
+    { "input": "   ", "path": null }
+  ],
+  "invalid": [
+    "shared",
+    "./shared",
+    "~/shared",
+    "/",
+    "//",
+    "/etc",
+    "/etc/",
+    "/srv",
+    "/opt",
+    "/tmp",
+    "/root",
+    "/home",
+    "/var",
+    "/proc",
+    "/srv/../etc",
+    "/srv/./x",
+    "/srv//x",
+    "/srv/x/..",
+    "C:/shared",
+    "C:\\shared",
+    "/srv/a:b",
+    "/srv/a:ro",
+    "/srv/$HOME",
+    "/srv/a\\b",
+    "/srv/a\nb",
+    "/srv/a\tb",
+    "/srv/ä"
+  ]
+}

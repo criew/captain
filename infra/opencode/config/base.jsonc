@@ -26,7 +26,9 @@
 //   OPENCODE_CONFIG_CONTENT ("webfetch:*" deny, bei gesetztem
 //   CAPTAIN_WEBFETCH_ALLOW danach die erlaubten URL-Praefixe). Eine
 //   webfetch-Policy hier wuerde jede dieser Freigaben schlagen; die
-//   Admin-Config darf "experimental" nicht setzen.
+//   Admin-Config darf "experimental" nicht setzen. Ebenso external_directory
+//   (fremde Verzeichnisse): "external_directory:*" deny setzt start.mjs immer,
+//   bei gesetztem CAPTAIN_SHARED_DIR danach nur "/shared/*" erlaubt.
 // - Einzelwerte (share, snapshots, websearch, ...) nimmt opencode aus der
 //   LETZTEN Quelle, die sie setzt – deshalb stehen sie im Image als
 //   OPENCODE_CONFIG_CONTENT (siehe Dockerfile), nicht hier.
@@ -56,14 +58,14 @@
 
   "experimental": {
     // Harte Obergrenze (Policy-Hook nach den Regeln). Format "<aktion>:<ressource>".
-    // webfetch fehlt bewusst: start.mjs setzt dafuer Policies (siehe oben).
+    // webfetch und external_directory fehlen bewusst: start.mjs setzt dafuer
+    // Policies (siehe oben), sonst liesse sich nichts gezielt freigeben.
     "policies": [
       { "action": "permission", "resource": "shell:*", "effect": "deny" },
       { "action": "permission", "resource": "websearch:*", "effect": "deny" },
       { "action": "permission", "resource": "subagent:*", "effect": "deny" },
       { "action": "permission", "resource": "skill:*", "effect": "deny" },
       { "action": "permission", "resource": "question:*", "effect": "deny" },
-      { "action": "permission", "resource": "external_directory:*", "effect": "deny" },
       // MCP-Ressourcen (opencode_list/read_mcp_resource). MCP-Tools heissen
       // <server>_<tool> und fallen nicht darunter – ausser ein Server hiesse
       // "opencode…" (dann waeren seine Tools hier gesperrt).

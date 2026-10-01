@@ -51,7 +51,8 @@ ENV OPENCODE_DISABLE_PROJECT_CONFIG=1
 # Quelle (kein Teilen, keine Updates, keine Websuche/LSP/Formatter/Snapshots),
 # Projekt-Config aus. Die .env kann daran nichts aendern.
 # egress.mjs: Egress-Filter, nur aktiv mit CAPTAIN_WEBFETCH_ALLOW (webfetch-Allowlist)
-COPY start.mjs egress.mjs /opt/captain/
+# shared.mjs: geteiltes Verzeichnis /shared (CAPTAIN_SHARED_DIR), Policies und Pruefung
+COPY start.mjs egress.mjs shared.mjs /opt/captain/
 
 # --- Admin-Config (editierbar, im Betrieb vom Host eingebunden) -------------
 # /etc/captain/opencode.jsonc: Provider, Modelle, Limits, MCP-Server, Freigaben

@@ -37,11 +37,12 @@ Achtung: v2-Konfiguration ist **nicht** v1-kompatibel (`providers` statt `provid
 | Datei | Zweck |
 |---|---|
 | `Dockerfile` | `node:22-bookworm-slim` + `@opencode/cli` (npm) + ripgrep (GitHub-Release, Prüfsumme) – ohne Paketmanager der Distribution |
-| `compose.yml` | Test-Setup: Service `opencode`, Port 4096, Volumes `captain-tmp`, `opencode-data` |
+| `compose.yml` | Test-Setup: Service `opencode`, Port 4096, Volumes `captain-tmp`, `opencode-data`, `/shared` (`CAPTAIN_SHARED_DIR` aus der Shell, sonst leeres Volume `shared-leer`) |
 | `config/base.jsonc` | **Sicherheitsbasis** (fest im Image) → `/root/.config/opencode/opencode.jsonc` |
-| `start.mjs` | Entrypoint: prüft die Admin-Config per Allowlist, schreibt die bereinigte Kopie `/run/captain/opencode.json` (= `OPENCODE_CONFIG`), setzt `OPENCODE_CONFIG_CONTENT` (inkl. webfetch-Policies)/Projekt-Config-Sperre fest, reicht nur eine Umgebungs-Allowlist durch, startet `opencode serve` |
+| `start.mjs` | Entrypoint: prüft die Admin-Config per Allowlist, schreibt die bereinigte Kopie `/run/captain/opencode.json` (= `OPENCODE_CONFIG`), setzt `OPENCODE_CONFIG_CONTENT` (inkl. webfetch- und external_directory-Policies)/Projekt-Config-Sperre fest, prüft `/shared`, reicht nur eine Umgebungs-Allowlist durch, startet `opencode serve` |
 | `egress.mjs` | Egress-Filter (HTTP-Proxy auf 127.0.0.1 im Startskript), nur aktiv mit `CAPTAIN_WEBFETCH_ALLOW` – siehe „webfetch“ |
-| `start.test.mjs`, `webfetch.test.mjs` | Node-Unit-Tests (über `tests/test_start_script.py`) |
+| `shared.mjs` | Geteiltes Verzeichnis `/shared` (`CAPTAIN_SHARED_DIR`): Pfadprüfung, Policies, Prüfung auf Symlinks u. a. beim Start und alle 10 s – siehe „Geteiltes Verzeichnis“ |
+| `start.test.mjs`, `webfetch.test.mjs`, `shared.test.mjs` | Node-Unit-Tests (über `tests/test_start_script.py`) |
 | `config/opencode.jsonc` | Vorlage der **Admin-Config** (Provider `llm`, MCP, Freigaben) → `/etc/captain/opencode.jsonc` (`OPENCODE_CONFIG`) und `/opt/captain/defaults/` |
 | `config/opencode.test.jsonc` | Admin-Config des Test-Setups (Ollama), per `compose.yml` eingebunden |
 | `config/AGENTS.md` | globaler Systemprompt „Captain“ → `/etc/captain/AGENTS.md` (Symlink von `/root/.config/opencode/AGENTS.md`) |
@@ -106,6 +107,8 @@ policy“ bzw. „Permission denied: external_directory“.
   `docker volume rm captain_workspaces` entfernt werden).
 - `opencode-data` → `/root/.local/share/opencode`: SQLite-DB (`opencode.db`) mit
   Sessions und Nachrichten.
+- `shared-leer` → `/shared` (schreibgeschützt), solange `CAPTAIN_SHARED_DIR`
+  leer ist; sonst das Host-Verzeichnis.
 
 Der Server läuft als `root`; Dateien in `/tmp/captain` gehören also root.
 
@@ -209,7 +212,6 @@ Ziel: **keine Tools außer Dateizugriff im eigenen Session-Verzeichnis**
   { "action": "permission", "resource": "subagent:*",           "effect": "deny" },
   { "action": "permission", "resource": "skill:*",              "effect": "deny" },
   { "action": "permission", "resource": "question:*",           "effect": "deny" },
-  { "action": "permission", "resource": "external_directory:*", "effect": "deny" },
   { "action": "permission", "resource": "opencode_*",           "effect": "deny" }
 ] }
 ```
@@ -218,9 +220,11 @@ Dazu setzt `start.mjs` `OPENCODE_CONFIG_CONTENT` mit `share: disabled`,
 `update: disable`, `websearch: false`, `lsp: false`, `formatter: false`,
 `snapshots: false` (letzte Quelle → Admin-Config kann sie nicht ändern) und
 den webfetch-Policies (`webfetch:*` deny, mit Allowlist danach die erlaubten
-Muster – siehe „webfetch“). Eine webfetch-Policy in der Basis würde jede
-Freigabe schlagen (früheste Quelle gewinnt), deshalb steht sie dort nicht; die
-Admin-Config darf `experimental` nicht setzen.
+Muster – siehe „webfetch“) sowie `external_directory:*` deny (mit
+`CAPTAIN_SHARED_DIR` danach `/shared/*` erlaubt, `.git` und `edit` dort
+verboten – siehe „Geteiltes Verzeichnis“). Eine solche Policy in der Basis würde
+jede Freigabe schlagen (früheste Quelle gewinnt), deshalb stehen beide dort
+nicht; die Admin-Config darf `experimental` nicht setzen.
 
 ### Pro Session (Bot, `captain.opencode.session_permissions`)
 
@@ -242,8 +246,39 @@ Admin-Config darf `experimental` nicht setzen.
   // nur mit CAPTAIN_WEBFETCH_ALLOW, je Präfix p:
   // {"action": "webfetch", "resource": p | p + "/*", "effect": "allow"},
   // danach webfetch deny für "*/..", "*/..?*", "*/%2e*", … und Tab/LF/CR
+  // nur mit CAPTAIN_SHARED_DIR (captain.shared.session_rules):
+  // {"action": "external_directory", "resource": "/shared/*", "effect": "allow"},
+  // {"action": "read", "resource": "/shared" | "/shared/*", "effect": "allow"},
+  // external_directory und read für /shared/.git, /shared/.git/*, /shared/*/.git,
+  // /shared/*/.git/* → deny; edit für /shared, /shared/* → deny
 ]
 ```
+
+### Geteiltes Verzeichnis (`CAPTAIN_SHARED_DIR`)
+
+Betrieb, Risiken und Admin-Schritte: Haupt-README, Kapitel 10. Technisch
+(aus dem Binary, `FileAccess.resolve`/`authorizeRead`, belegt durch
+`tests/test_shared_integration.py`):
+
+- Pfade werden mit `path.resolve(<session-verzeichnis>, pfad)` **lexikalisch**
+  aufgelöst, kein `realpath`; innerhalb des Session-Verzeichnisses (oder des
+  Projekts, das hier das Session-Verzeichnis ist) geht `read` relativ weiter.
+- Außerhalb: `external_directory` mit Ressource `<verzeichnis>/*` (Datei:
+  Elternverzeichnis per `stat`, folgt Symlinks), danach `read`/`edit` mit dem
+  absoluten Pfad. `/shared` selbst ergibt `/shared/*`, `/sharedX/a` ergibt
+  `/sharedX/*` (passt nicht auf `/shared/*`), `/shared/../etc/x` ergibt `/etc/*`.
+- `glob`/`grep`: Ressource ist das Suchmuster, der Suchpfad läuft über
+  `external_directory`. ripgrep läuft ohne `--follow` mit `--glob=!**/.git/**`
+  (zuletzt, gewinnt gegen `include`).
+- **Symlinks** unter `/shared` würden gelesen (Gegenprobe im Test: fremde
+  Session-Datei, `/etc/passwd`). Deshalb prüft `shared.mjs` beim Start und alle
+  10 s alles unter `/shared` per `lstat` (Symlinks, `nlink > 1`, Geräte/FIFOs/
+  Sockets, Verzeichnisse mit derselben Geräte-/Inode-Nummer wie
+  `/tmp/captain`, `/root/.local/share/opencode`, `/etc/captain`, `/run/captain`,
+  `/root/.config/opencode`) – mit Befund startet opencode nicht bzw. wird
+  beendet. `/shared` muss außerdem schreibgeschützt sein.
+- Ohne Variable hängt an `/shared` ein leeres Volume, und die Policy
+  `external_directory:*` deny gilt ohne Ausnahme.
 
 ### webfetch (Allowlist `CAPTAIN_WEBFETCH_ALLOW`)
 

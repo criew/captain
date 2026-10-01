@@ -27,6 +27,8 @@ import threading
 import uuid
 import weakref
 
+from .shared import MOUNT
+
 log = logging.getLogger(__name__)
 
 SESSION_FIELDS = ("opencode_session_id", "directory")
@@ -53,18 +55,34 @@ def new_session_id() -> str:
     return f"ses_{uuid.uuid4().hex}"
 
 
-def environment_prompt(directory: str, webfetch: tuple[str, ...] | list[str] = ()) -> str:
+def environment_prompt(
+    directory: str, webfetch: tuple[str, ...] | list[str] = (), shared: bool = False,
+) -> str:
     """Systemanweisung zur Arbeitsumgebung einer Session (mit konkretem Pfad).
 
     ``webfetch``: kanonische Präfixe der Allowlist (``CAPTAIN_WEBFETCH_ALLOW``);
-    leer = kein Internet-Zugriff.
+    leer = kein Internet-Zugriff. ``shared``: geteiltes Verzeichnis
+    (``CAPTAIN_SHARED_DIR``) unter :data:`captain.shared.MOUNT`, nur lesbar.
     """
     files = (
         "# Arbeitsumgebung\n"
         f"- Dein Arbeitsverzeichnis ist `{directory}`. Du darfst ausschließlich "
         "Dateien in diesem Verzeichnis lesen, anlegen, bearbeiten und durchsuchen "
-        "(Tools read, write, edit, glob, grep). Zugriffe außerhalb werden abgelehnt.\n"
+        "(Tools read, write, edit, glob, grep). Zugriffe außerhalb werden abgelehnt"
+        + (f" – einzige Ausnahme ist `{MOUNT}` (siehe unten).\n" if shared else ".\n")
     )
+    if shared:
+        files += (
+            f"- Geteiltes Verzeichnis `{MOUNT}`: Dort legt der Administrator Dateien ab, "
+            "die in allen Unterhaltungen zur Verfügung stehen, typischerweise "
+            "Nachschlagematerial wie Dokumentation, Anleitungen, Richtlinien oder "
+            "Datenlisten. Du darfst dort **nur lesen und suchen** (read, glob, grep mit "
+            f"absolutem Pfad, z. B. `{MOUNT}` oder `{MOUNT}/…`), aber nichts anlegen, ändern "
+            "oder löschen. Gut lesbar sind Textformate (z. B. .txt, .md, .csv, .json); "
+            "PDF- und Office-Dateien kannst du dort nicht auswerten. Wenn du dich auf "
+            "eine Datei daraus beziehst, nenne ihren Pfad. Willst du etwas daraus "
+            "bearbeiten, lege eine Kopie im Arbeitsverzeichnis an.\n"
+        )
     if webfetch:
         urls = ", ".join(f"`{p}`" for p in webfetch)
         web = (
@@ -93,11 +111,11 @@ def environment_prompt(directory: str, webfetch: tuple[str, ...] | list[str] = (
 
 
 def session_instructions(
-    persona: str, directory: str, webfetch: tuple[str, ...] | list[str] = (),
+    persona: str, directory: str, webfetch: tuple[str, ...] | list[str] = (), shared: bool = False,
 ) -> dict[str, str]:
     """Systemanweisungen pro Session in Reihenfolge: Persona, dann Arbeitsumgebung."""
     entries = {"captain-persona": persona.strip(),
-               "captain-umgebung": environment_prompt(directory, webfetch)}
+               "captain-umgebung": environment_prompt(directory, webfetch, shared)}
     return {k: v for k, v in entries.items() if v}
 
 

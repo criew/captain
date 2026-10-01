@@ -19,7 +19,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from . import webfetch
+from . import shared, webfetch
 
 CONFIG_ENV = "CAPTAIN_CONFIG"
 
@@ -27,6 +27,7 @@ REQUIRED = ("MM_URL", "MM_BOT_TOKEN", "OPENCODE_URL")
 OPTIONAL = (
     "OPENCODE_PASSWORD", "OPENCODE_MODEL", "OPENCODE_VARIANT",
     "CAPTAIN_SYSTEM_PROMPT", "CAPTAIN_SYSTEM_PROMPT_FILE", "CAPTAIN_WEBFETCH_ALLOW",
+    "CAPTAIN_SHARED_DIR",
 )
 DEFAULTS = {
     "SESSIONS_DIR": "/tmp/captain",
@@ -69,6 +70,13 @@ class Config:
     history_max_chars: int = int(DEFAULTS["HISTORY_MAX_CHARS"])
     # webfetch-Allowlist (kanonische URL-Präfixe); leer = webfetch aus
     webfetch_allow: tuple[str, ...] = ()
+    # Geteiltes Verzeichnis (Host-Pfad, nur zur Info); gesetzt = opencode
+    # liest es unter shared.MOUNT (/shared), None = aus
+    shared_dir: str | None = None
+
+    @property
+    def shared(self) -> bool:
+        return self.shared_dir is not None
 
     @property
     def max_attachment_bytes(self) -> int | None:
@@ -157,6 +165,13 @@ def _webfetch(value) -> tuple[str, ...]:
         raise ConfigError(str(e)) from None
 
 
+def _shared(value) -> str | None:
+    try:
+        return shared.normalize(None if value is None else str(value))
+    except ValueError as e:
+        raise ConfigError(str(e)) from None
+
+
 def _count(values: dict, key: str) -> int:
     """Ganzzahl >= 0 (auch aus JSON als Zahl)."""
     raw = values[key]
@@ -201,4 +216,5 @@ def load(path: str | None = None, env: Mapping[str, str] | None = None) -> Confi
         history_max_posts=_count(values, "HISTORY_MAX_POSTS"),
         history_max_chars=_count(values, "HISTORY_MAX_CHARS"),
         webfetch_allow=_webfetch(values.get("CAPTAIN_WEBFETCH_ALLOW")),
+        shared_dir=_shared(values.get("CAPTAIN_SHARED_DIR")),
     )

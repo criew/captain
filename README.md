@@ -25,6 +25,7 @@ captain/
 ├─ catchup.py             Nachholen verpasster Posts: Ablauf, Startpunkt, Auswahl
 ├─ cursors.py             Cursor pro Kanal, beantwortete Posts (DATA_DIR/cursors.json)
 ├─ webfetch.py            webfetch-Allowlist: Normalisierung, Session-Regeln
+├─ shared.py              Geteiltes Verzeichnis /shared: Pfadprüfung, Session-Regeln
 ├─ __main__.py            Einstieg: python -m captain
 scripts/e2e.py            Ende-zu-Ende-Test gegen das laufende Setup
 tests/                    pytest (fake_llm.py: Fake-LLM, mcp_testserver/: Test-MCP-Server)
@@ -111,12 +112,14 @@ Variablen der `.env` (Details: `.env.example` und „Konfiguration“):
 | `CAPTAIN_HTTP_PROXY`, `CAPTAIN_HTTPS_PROXY`, `CAPTAIN_NO_PROXY` | nein | Proxy für ausgehende Verbindungen (siehe „Hinter einem Proxy“) |
 | `CAPTAIN_CA_FILE` | nein | Dateiname einer zusätzlichen CA (PEM) in `$CAPTAIN_HOME/config/`, z. B. Firmen-CA des LLM-Endpunkts (siehe „Hinter einem Proxy“) |
 | `CAPTAIN_WEBFETCH_ALLOW` | nein (leer = aus) | URL-Präfixe, die das Modell per `webfetch` lesen darf (siehe 9.) |
+| `CAPTAIN_SHARED_DIR` | nein (leer = aus) | Host-Verzeichnis, das alle Chats unter `/shared` nur lesen (siehe 10.) |
 | `MCP_…` in **`mcp.env`** | nein | Geheimnisse für MCP-Server (Vorlage `mcp.env.example`; `{env:MCP_…}` in der Config) |
 
 Der Bot bekommt die ganze `.env`. Der opencode-Container bekommt davon nur
 die in `compose.deploy.yml` genannten Variablen (`OPENCODE_SERVER_PASSWORD`,
 `OPENCODE_MODEL`/`_VARIANT`, `LLM_*`, `OLLAMA_BASE_URL`, Cloud-API-Keys,
-`CAPTAIN_WEBFETCH_ALLOW` – die liest nur das Startskript) plus
+`CAPTAIN_WEBFETCH_ALLOW`, `CAPTAIN_SHARED_DIR`, `CAPTAIN_HOME` – die liest
+nur das Startskript) plus
 `mcp.env` – also nie `MM_BOT_TOKEN`. In der Admin-Config lassen sich per
 `{env:NAME}` nur `LLM_*`, `OLLAMA_*`, `MCP_*`, `*_API_KEY` und
 `OPENCODE_MODEL`/`OPENCODE_VARIANT` einsetzen, nie `MM_*`, `CAPTAIN_*` oder
@@ -208,7 +211,8 @@ Session-Verzeichnis teilen. Das Modell kommt an keine Shell und nur an Dateien
 im eigenen Session-Verzeichnis (Session-Regeln, Policies, keine
 Projekt-Config, bereinigte Admin-Config); ein Ausbruch bräuchte eine Lücke in
 opencode selbst. Für diesen Fall begrenzt Docker den Schaden (kein
-privilegierter Container, keine Host-Mounts außer `CAPTAIN_HOME`), root im
+privilegierter Container, keine Host-Mounts außer `CAPTAIN_HOME` und ggf.
+`CAPTAIN_SHARED_DIR` schreibgeschützt), root im
 Container ist aber nicht root-los – den Rechner deshalb nicht für andere
 sensible Dienste mitnutzen und Docker aktuell halten.
 
@@ -220,8 +224,9 @@ Binary ermittelt, per Test belegt):
 1. **Sicherheitsbasis im Image** (`infra/opencode/config/base.jsonc` →
    `/root/.config/opencode/opencode.jsonc`): globales `* * deny` und
    `experimental.policies` gegen Shell, Websuche, Subagenten, Skills,
-   Rückfragen, fremde Verzeichnisse und MCP-Ressourcen; Projekt-Config aus.
-   Die webfetch-Policies setzt das Startskript (Punkt 3).
+   Rückfragen und MCP-Ressourcen; Projekt-Config aus.
+   Die Policies für webfetch und fremde Verzeichnisse setzt das Startskript
+   (Punkt 3).
 2. **Admin-Config** `$CAPTAIN_HOME/config/opencode.jsonc` – **editierbar**,
    aber nur über das Startskript `infra/opencode/start.mjs`. Es liest die
    Datei beim Containerstart, setzt `{env:…}` selbst ein (JSON-sicher auf
@@ -245,11 +250,13 @@ Binary ermittelt, per Test belegt):
    ungültiges JSONC oder eine nicht schreibbare Kopie → opencode startet nicht.
 3. Feste Schalter (`OPENCODE_CONFIG_CONTENT`, vom Startskript gesetzt: kein
    Teilen, keine Updates, keine Websuche/LSP/Formatter/Snapshots) und die
-   webfetch-Policies (`webfetch:*` gesperrt, außer der Allowlist aus 9.).
+   Policies für webfetch (`webfetch:*` gesperrt, außer der Allowlist aus 9.)
+   und fremde Verzeichnisse (`external_directory:*` gesperrt, außer `/shared`
+   aus 10.).
 4. Pro Session die Regeln des Bots (nur Dateien im eigenen Verzeichnis, zum
    Schluss Verbot von Shell, Web, Subagenten, Skills, Rückfragen, Code Mode,
    MCP-Ressourcen und fremden Verzeichnissen; danach ggf. die
-   webfetch-Allowlist).
+   webfetch-Allowlist und `/shared` lesend).
 
 Regeln aller Quellen werden aneinandergehängt (die letzte passende gewinnt),
 Policies der Sicherheitsbasis gewinnen immer gegen Policies späterer Quellen,
@@ -406,7 +413,114 @@ Risiken:
 - Ältere `$CAPTAIN_HOME/config/AGENTS.md` sagen noch „kein Web-Zugriff“; der
   Hinweis in `captain-umgebung` geht vor, die Vorlage ist angepasst.
 
-### 10. Erster Start, Updates, Backup, Deinstallation
+### 10. Geteiltes Verzeichnis (nur lesen)
+
+Ein Host-Verzeichnis, in das der Admin Dateien legt, kann Captain in **allen
+Chats lesen** – nicht ändern. Eine Zeile in der `.env` schaltet es ein; leer
+= aus wie bisher:
+
+```sh
+sudo mkdir -p /srv/captain-shared
+sudo cp handbuch.md preisliste.csv /srv/captain-shared/
+echo 'CAPTAIN_SHARED_DIR=/srv/captain-shared' >> .env
+docker compose -f compose.deploy.yml up -d
+docker compose -f compose.deploy.yml logs opencode | grep geteilt
+# [captain-start] geteiltes Verzeichnis /srv/captain-shared -> /shared (nur lesen, Pruefung alle 10 s)
+```
+
+- Im opencode-Container liegt es immer unter **`/shared`**, schreibgeschützt
+  (`:ro`). Das Modell erfährt über `captain-umgebung`, dass es dort nur lesen
+  und suchen darf (`read`, `glob`, `grep` mit `/shared/…`) und was dort
+  typischerweise liegt. Der Bot bekommt es nicht eingebunden.
+- **Änderungen** (neue, geänderte, gelöschte Dateien) sind **ohne Neustart**
+  sofort sichtbar. Das Ein- und Ausschalten wirkt nach `up -d`: die Sperren in
+  opencode sofort, die Freigabe in den Session-Regeln erst in **neuen**
+  Sessions (`!neu`, neuer Thread) – ältere Sessions lesen `/shared` also erst
+  nach `!neu`.
+- **Formate:** Text (`.txt`, `.md`, `.csv`, `.json`, Quelltext, HTML als
+  Text) ja. **PDF und Office nicht** (wie bei Anhängen, siehe „Anhänge“) –
+  vorher in Text umwandeln (z. B. `pdftotext`, `markitdown`) und die `.txt`/
+  `.md` daneben legen. Bilder nur mit multimodalem Modell. `read` liefert
+  höchstens 2000 Zeilen pro Aufruf (das Modell kann blättern).
+- **Pfad:** absolut, nicht `/` und kein Systemverzeichnis wie `/etc`, `/opt`,
+  `/srv` (ein Unterverzeichnis davon schon), ohne `.`/`..`, `:` und `$`, nicht
+  innerhalb von oder oberhalb von `CAPTAIN_HOME`. Ein ungültiger Wert lässt
+  Bot und opencode **nicht starten** (Meldung im Log).
+- **Nicht erlaubt unter dem Verzeichnis:** Symlinks, Dateien mit mehreren
+  harten Links, Geräte/FIFOs/Sockets und Captain-eigene Verzeichnisse (z. B.
+  `CAPTAIN_HOME/sessions` per Bind-Mount). Das Startskript prüft beim Start
+  und danach alle 10 s; findet es so etwas, startet opencode nicht bzw. wird
+  beendet (Log `[captain-start] FEHLER: /shared unzulaessig – …`), bis der
+  Eintrag entfernt ist. Grund: opencode folgt Symlinks ungeprüft (siehe unten).
+- **`.git` ist gesperrt** (in jeder Tiefe, auch für `glob`/`grep`):
+  `.git/config` kann Zugangsdaten in Remote-URLs enthalten, und das
+  Git-Innenleben ist für das Modell nur Rauschen.
+
+**Git-Repository mit gemeinsamen Infos** – zwei Wege, die funktionieren
+(ein Symlink *innerhalb* des Verzeichnisses dagegen nicht, siehe oben):
+
+1. **Direkt hineinklonen** und per `git pull` aktualisieren (z. B. per Cron):
+   ```sh
+   sudo git clone -c core.symlinks=false https://git.example.org/team/infos.git /srv/captain-shared/infos
+   sudo git -C /srv/captain-shared/infos pull --ff-only
+   ```
+   `core.symlinks=false` checkt Symlinks im Repo als kleine Textdateien aus
+   (sonst stoppt die Prüfung opencode). Lokale Klone (`git clone /pfad/repo`)
+   legen harte Links an – dafür `--no-hardlinks` angeben. Zugangsdaten lieber
+   per Deploy-Key oder Credential-Helper statt in der Remote-URL.
+2. **`CAPTAIN_SHARED_DIR` selbst darf ein Symlink sein**, z. B.
+   `CAPTAIN_SHARED_DIR=/srv/captain-infos` → `/data/git/infos`: Docker löst die
+   Quelle beim **Anlegen** des Containers auf (belegt durch
+   `tests/test_shared_integration.py`). Nach einer Änderung des Link-Ziels:
+   `docker compose -f compose.deploy.yml up -d --force-recreate opencode`
+   (ein einfaches `up -d` merkt das nicht). Das Ziel darf ebenfalls nicht in
+   `CAPTAIN_HOME` liegen.
+
+Durchgesetzt wird an mehreren Stellen:
+
+| Sperre | Wo | Wirkung |
+|---|---|---|
+| Mount `:ro` | `compose.deploy.yml` | Schreiben scheitert am Kernel; ist `/shared` beschreibbar, startet opencode nicht. Ohne Variable hängt dort das leere Volume `shared-leer` (kein Host-Verzeichnis) |
+| Policies (Obergrenze) | `infra/opencode/shared.mjs` → `OPENCODE_CONFIG_CONTENT` | immer `external_directory:*` deny; mit Variable danach `external_directory:/shared/*` erlaubt, dann `.git` (für `external_directory` und `read`) und `edit:/shared`, `edit:/shared/*` verboten. Gilt auch ohne Session-Regeln; die Admin-Config kann keine Policies setzen. Die Sicherheitsbasis enthält deshalb keine `external_directory`-Policy mehr |
+| Session-Regeln | Bot, `captain/shared.py` | nach den Verboten: `external_directory /shared/*`, `read /shared` und `/shared/*` erlaubt, danach `.git` und `edit` unter `/shared` verboten (letzte Regel gewinnt – Admin-Freigaben ändern nichts) |
+| Prüfung | `infra/opencode/shared.mjs` | Start und alle 10 s: Symlinks u. a. (siehe oben) → kein Start bzw. opencode beendet |
+
+Shell, Websuche, Code Mode, Subagenten, Skills, andere Verzeichnisse und die
+webfetch-Allowlist bleiben unverändert; die Admin-Config kann nicht mehr als
+`/shared` lesend freigeben.
+
+Was opencode 2.0.20 bei Pfaden prüft (aus dem Binary, `FileAccess.resolve`,
+belegt durch `tests/test_shared_integration.py`): Der Pfad des Modells wird
+**lexikalisch** aufgelöst (`path.resolve` gegen das Session-Verzeichnis, `..`
+fällt weg, **kein realpath**). Liegt er außerhalb des Session-Verzeichnisses,
+prüft opencode `external_directory` mit `<verzeichnis>/*` (bei einer Datei das
+Elternverzeichnis) und danach `read`/`edit` mit dem absoluten Pfad; `glob`/
+`grep` prüfen das Suchmuster, ihr Suchpfad läuft über `external_directory`.
+Muster mit `*` (auch über `/`) und Groß-/Kleinschreibung. Ergebnis:
+`/shared/…` und `../../../shared/…` lesbar; `/shared/../tmp/captain/<andere
+Session>/…`, `/sharedX/…`, `/SHARED/…` und `/etc/passwd` → „Permission
+denied: external_directory“. `glob`/`grep` nutzen ripgrep ohne `--follow`
+und lassen `.git` aus. **Symlinks folgt opencode**: ohne die Prüfung (Gegenprobe
+im Test) lieferte `/shared/sessions/<andere Session>/geheim.txt` mit
+`/shared/sessions` → `/tmp/captain` die Datei einer fremden Session und
+`/shared/passwd` → `/etc/passwd` die Passwortdatei des Containers.
+
+Risiken:
+
+- **Alle Chats lesen alles**: jeder, der Captain schreiben darf
+  (`ALLOWED_USERS`), kann jede Datei dort erfragen. Nur ablegen, was alle
+  sehen dürfen. Inhalte gehen an den LLM-Provider.
+- **Abfluss:** Mit `CAPTAIN_WEBFETCH_ALLOW` kann das Modell Inhalte in
+  URL-Parameter erlaubter Hosts schreiben (siehe 9.), ebenso über freigegebene
+  MCP-Tools – auch ausgelöst durch eingeschleuste Anweisungen in den Dateien
+  selbst (Prompt-Injection).
+- **Prüfintervall:** Ein neu angelegter Symlink ist bis zu 10 s lang
+  wirksam, bevor opencode beendet wird. Keine Symlinks anlegen; Schreibrecht
+  auf das Verzeichnis nur für Admins.
+- Die Prüfung läuft alle 10 s über alle Einträge – bei sehr großen Bäumen
+  (≫ 100 000 Dateien) kostet das spürbar I/O.
+
+### 11. Erster Start, Updates, Backup, Deinstallation
 
 - **Erster Start:** Captain beantwortet nur, was ab dann kommt; ältere
   Nachrichten bleiben unbeantwortet. Nach späteren Pausen (Neustart, Update)
@@ -472,13 +586,14 @@ anmelden und dem Bot `captain` schreiben. Logs: `docker compose logs -f captain`
   bietet dem Modell dadurch nur `read`, `write`, `edit`, `glob`, `grep` an –
   plus vom Admin freigegebene MCP-Tools und, mit `CAPTAIN_WEBFETCH_ALLOW`,
   `webfetch` für die erlaubten URLs (siehe „webfetch für bestimmte URLs
-  erlauben“).
+  erlauben“) und, mit `CAPTAIN_SHARED_DIR`, Lesen unter `/shared` (siehe
+  „Geteiltes Verzeichnis (nur lesen)“).
 - **Systemanweisungen pro Session** (dauerhaft, überleben Kompaktierung): der
   Bot setzt nach dem Anlegen über
   `PUT /api/experimental/session/{id}/instructions/entries/{key}` zwei
   Einträge – `captain-persona` (`CAPTAIN_SYSTEM_PROMPT[_FILE]`) und
   `captain-umgebung` (konkretes Verzeichnis, keine Shell/Web bzw. die
-  webfetch-Allowlist). opencode hängt
+  webfetch-Allowlist, ggf. `/shared` nur lesen). opencode hängt
   sie als `<context key=…>` an den Systemprompt, **nach** der globalen
   `AGENTS.md` (die deshalb keine Persona mehr enthält, nur Stil- und
   Werkzeugregeln). Schlägt das Setzen (auch teilweise) fehl, bekommt der
@@ -578,6 +693,7 @@ deren Pfad in `CAPTAIN_CONFIG` steht (gleiche Schlüssel, Umgebung gewinnt).
 | `HISTORY_MAX_POSTS` | nein    | `50`          | Vorgeschichte einer neuen Kanal-Unterhaltung: höchstens so viele Posts (`0` = keine) |
 | `HISTORY_MAX_CHARS` | nein    | `8000`        | … und so viele Zeichen insgesamt (neueste gewinnen) |
 | `CAPTAIN_WEBFETCH_ALLOW` | nein | leer = aus   | Kommagetrennte URL-Präfixe für `webfetch` (Session-Regeln, Systemhinweis); ungültig → Start bricht ab |
+| `CAPTAIN_SHARED_DIR` | nein   | leer = aus    | Host-Pfad des geteilten Verzeichnisses; gesetzt = Session-Regeln und Systemhinweis für `/shared` (nur lesen); ungültig → Start bricht ab |
 | `LOG_LEVEL`         | nein    | `INFO`        | Log-Level (nur Umgebung)                 |
 
 Im Container setzt `compose.yml` `MM_URL`/`OPENCODE_URL` auf die
