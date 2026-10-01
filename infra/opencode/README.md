@@ -36,7 +36,7 @@ Achtung: v2-Konfiguration ist **nicht** v1-kompatibel (`providers` statt `provid
 
 | Datei | Zweck |
 |---|---|
-| `Dockerfile` | `node:22-bookworm-slim` + `@opencode/cli`, git, ripgrep, curl |
+| `Dockerfile` | `node:22-bookworm-slim` + `@opencode/cli` (npm) + ripgrep (GitHub-Release, Prüfsumme) – ohne Paketmanager der Distribution |
 | `compose.yml` | Test-Setup: Service `opencode`, Port 4096, Volumes `captain-tmp`, `opencode-data` |
 | `config/base.jsonc` | **Sicherheitsbasis** (fest im Image) → `/root/.config/opencode/opencode.jsonc` |
 | `start.mjs` | Entrypoint: prüft die Admin-Config per Allowlist, schreibt die bereinigte Kopie `/run/captain/opencode.json` (= `OPENCODE_CONFIG`), setzt `OPENCODE_CONFIG_CONTENT`/Projekt-Config-Sperre fest, reicht nur eine Umgebungs-Allowlist durch, startet `opencode serve` |
