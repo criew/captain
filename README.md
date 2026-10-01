@@ -137,13 +137,15 @@ einem Kanal `@captain Hallo` (Antwort als Thread unter dem Post), dort
 #### Hinter einem Proxy
 
 - **Build:** Die Images werden im Host-Netz gebaut (`build.network: host`),
-  `apt-get`/`npm`/`pip` sehen also DNS, `/etc/hosts` und Proxy-Einstellungen
-  des Hosts. Braucht der Host für Internetzugriff einen Proxy, muss Docker ihn
+  `npm`/`pip`/`curl` sehen also DNS, `/etc/hosts` und Proxy-Einstellungen
+  des Hosts. Paketquellen von Linux-Distributionen werden nicht gebraucht –
+  nötig sind nur Docker Hub, `registry.npmjs.org`, `pypi.org` /
+  `files.pythonhosted.org` und `github.com` (ripgrep-Release). Braucht der Host für Internetzugriff einen Proxy, muss Docker ihn
   kennen – `~/.docker/config.json` (`"proxies": {"default": {"httpProxy": …,
   "httpsProxy": …, "noProxy": …}}`) oder die Systemd-Konfiguration des
   Docker-Daemons.
   Fehlerbild ohne das: `ProxyError('Cannot connect to proxy.' … Temporary
-  failure in name resolution)` bei `pip install` bzw. hängendes `apt-get`.
+  failure in name resolution)` bei `pip install`.
 - **Laufzeit:** Bot und opencode nutzen **nur** `CAPTAIN_HTTP_PROXY` /
   `CAPTAIN_HTTPS_PROXY` aus der `.env` – ein Proxy aus der Host-Shell oder
   `~/.docker/config.json` wird bewusst überschrieben, weil sein Name im

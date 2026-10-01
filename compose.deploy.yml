@@ -34,7 +34,7 @@ services:
     build:
       context: infra/opencode
       # Build im Host-Netz: DNS/hosts/Proxy des Hosts gelten auch für
-      # apt-get/npm/pip (sonst z. B. „Cannot connect to proxy … name resolution“)
+      # npm/pip/curl (sonst z. B. „Cannot connect to proxy … name resolution“)
       network: host
       args:
         OPENCODE_VERSION: "2.0.20"
