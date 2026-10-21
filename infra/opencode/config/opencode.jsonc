@@ -16,7 +16,7 @@
 // NICHT VERWENDEN – hebelt die Sicherheit aus (das Startskript verwirft es mit
 // einer Warnung im Log): plugins, lokale MCP-Server ("type": "local"),
 // agents, default_agent, commands, skills, instructions, references, shell,
-// enterprise, experimental, tool_output, media, username, worktree, {file:…}.
+// enterprise, experimental, policies, tool_output, media, username, worktree, {file:…}.
 {
   "$schema": "https://opencode.ai/config.json",
 

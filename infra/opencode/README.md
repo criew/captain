@@ -2,7 +2,7 @@
 
 opencode läuft headless als dauerhafter Server im Container `opencode` (Port `4096`)
 und wird über das Root-`compose.yml` (`include:`) eingebunden. Dasselbe Image
-nutzt der Betrieb (`compose.deploy.yml`, Tag `captain/opencode:2.0.20`, ohne
+nutzt der Betrieb (`compose.deploy.yml`, Tag `captain/opencode:2.1.2`, ohne
 Host-Port; siehe Haupt-README).
 
 ## Schnellstart
@@ -18,15 +18,30 @@ Healthcheck: `GET /api/info` mit Basic-Auth; `docker compose ps` zeigt `healthy`
 
 ## Version
 
-**opencode v2, npm `@opencode/cli@2.0.20`** (fest gepinnt in `Dockerfile` und
+**opencode v2, npm `@opencode/cli@2.1.2`** (fest gepinnt in `Dockerfile` und
 `compose.yml`, Build-Arg `OPENCODE_VERSION`). Update-Prüfung ist per Config
 abgeschaltet (`"update": "disable"`).
 
 Begründung: v2 läuft headless im Server-Modus sauber (`opencode serve`), bringt eine
 versionierte REST-API unter `/api/*` mit OpenAPI-Spec, ein typisiertes SSE-Event-Modell
 mit Text-Deltas sowie automatische Ollama-Discovery. Alle Akzeptanztests (Session,
-Prompt, SSE, Tools, Permissions, Interrupt) liefen gegen 2.0.20 erfolgreich. v1
-(`opencode-ai` 1.18.x) wird nicht benötigt.
+Prompt, SSE, Tools, Permissions, Interrupt) liefen gegen 2.0.20 und nach dem
+Update gegen 2.1.2 erfolgreich. v1 (`opencode-ai` 1.x, GitHub-Releases `v1.*`)
+wird nicht benötigt.
+
+**Update auf eine neue Version:** `OPENCODE_VERSION` in `Dockerfile`,
+`compose.yml` und `../../compose.deploy.yml` (Build-Arg und Image-Tag) sowie
+den Test-Default `CAPTAIN_OC_IMAGE` (`Integration.java`) anheben, Image bauen,
+dann **alle** Integrationstests (`./gradlew integrationTest`) und
+`scripts/e2e.py` (alle drei Modi) laufen lassen – die Sicherheitsbasis beruht
+auf Verhalten, das nur diese Tests belegen. 2.0.20 → 2.1.2: `policies` sind
+jetzt stabil auf oberster Ebene (`experimental.policies` wird weiter gelesen
+und zusammengeführt); Captain nutzt die neue Form. **Achtung:** Die
+Policy-Aktion heißt seit 2.1 `tool.use` statt `permission` (#53775). Policies
+mit der alten Aktion verwirft opencode **ohne Fehler** – die harte Obergrenze
+wäre dann still weg. Aufgefallen ist das nur durch
+`ConfigLayersIntegrationTest.hostileAdminConfigCannotUnlockShell` (mit
+Session-Regel `* * allow` lief `shell id` als root).
 
 Achtung: v2-Konfiguration ist **nicht** v1-kompatibel (`providers` statt `provider`,
 `permissions` als Regel-Array statt `permission`-Objekt, Paket
@@ -42,7 +57,7 @@ Achtung: v2-Konfiguration ist **nicht** v1-kompatibel (`providers` statt `provid
 | `start.mjs` | Entrypoint: prüft die Admin-Config per Allowlist, schreibt die bereinigte Kopie `/run/captain/opencode.json` (= `OPENCODE_CONFIG`), setzt `OPENCODE_CONFIG_CONTENT` (inkl. webfetch- und external_directory-Policies)/Projekt-Config-Sperre fest, prüft `/shared`, reicht nur eine Umgebungs-Allowlist durch, startet `opencode serve` |
 | `egress.mjs` | Egress-Filter (HTTP-Proxy auf 127.0.0.1 im Startskript), nur aktiv mit `CAPTAIN_WEBFETCH_ALLOW` – siehe „webfetch“ |
 | `shared.mjs` | Geteiltes Verzeichnis `/shared` (`CAPTAIN_SHARED_DIR`): Pfadprüfung, Policies, Prüfung auf Symlinks u. a. beim Start und alle 10 s – siehe „Geteiltes Verzeichnis“ |
-| `start.test.mjs`, `webfetch.test.mjs`, `shared.test.mjs` | Node-Unit-Tests (über `tests/test_start_script.py`) |
+| `start.test.mjs`, `webfetch.test.mjs`, `shared.test.mjs` | Node-Unit-Tests (über `StartScriptTest` bzw. `./gradlew nodeTest`) |
 | `config/opencode.jsonc` | Vorlage der **Admin-Config** (Provider `llm`, MCP, Freigaben) → `/etc/captain/opencode.jsonc` (`OPENCODE_CONFIG`) und `/opt/captain/defaults/` |
 | `config/opencode.test.jsonc` | Admin-Config des Test-Setups (Ollama), per `compose.yml` eingebunden |
 | `config/AGENTS.md` | globaler Systemprompt „Captain“ → `/etc/captain/AGENTS.md` (Symlink von `/root/.config/opencode/AGENTS.md`) |
@@ -53,7 +68,7 @@ Die Sicherheitsbasis ist ins Image kopiert (Änderung → `up -d --build`); die
 Admin-Config und `AGENTS.md` unter `/etc/captain` bindet der Betrieb aus
 `$CAPTAIN_HOME/config` ein (Änderung → `restart opencode`).
 
-## Config-Quellen (v2.0.20, aus dem Binary ermittelt)
+## Config-Quellen (an 2.0.20 aus dem Binary ermittelt, mit 2.1.2 durch die Integrationstests bestätigt)
 
 opencode lädt nacheinander: global (`/root/.config/opencode/opencode.jsonc`) →
 `OPENCODE_CONFIG` (bereinigte Kopie) → Projekt-Config (hier abgeschaltet) →
@@ -75,7 +90,7 @@ Für die übrigen Schlüssel gilt:
 | Schlüssel | Zusammenführung | Folge |
 |---|---|---|
 | `permissions` | aneinandergehängt in obiger Reihenfolge, danach Session-Regeln; letzte passende Regel gewinnt | Admin-Config kann nach dem globalen `* * deny` freigeben; Session-Regeln des Bots haben das letzte Wort |
-| `experimental.policies` | gesammelt, bei gleichem Treffer gewinnt die **früheste** Quelle | Policies der Sicherheitsbasis sind durch keine spätere Quelle aufhebbar |
+| `policies` (und `experimental.policies`) | gesammelt, bei gleichem Treffer gewinnt die **früheste** Quelle | Policies der Sicherheitsbasis sind durch keine spätere Quelle aufhebbar |
 | `mcp.servers`, `providers` | pro Name gemischt, spätere Quelle gewinnt | Admin-Config definiert Server und Provider |
 | Einzelwerte (`model`, `share`, `snapshots`, `websearch`, …) | letzte Quelle, die sie setzt | feste Schalter stehen deshalb in `OPENCODE_CONFIG_CONTENT` (von `start.mjs` gesetzt) |
 | globale `AGENTS.md` | nur `<config-dir>/AGENTS.md` | per Symlink auf `/etc/captain/AGENTS.md` |
@@ -93,7 +108,7 @@ opencode mit einer Warnung `configuration normalization diagnostic` im Log;
 unlesbares JSON verwirft die ganze Datei. Die Sicherheitsbasis bleibt in
 beiden Fällen.
 
-Belegt durch `tests/test_config_layers_integration.py` (eigener Container,
+Belegt durch `ConfigLayersIntegrationTest` (eigener Container,
 Fake-LLM, Test-MCP-Server): Admin-Config mit `* * allow`, allow-Policies,
 `share: auto` → Shell/Web/Code Mode bleiben unsichtbar; mit Session-Regel
 `* * allow` sind sie sichtbar, Aufrufe enden mit „Blocked by configuration
@@ -163,7 +178,7 @@ Kein API-Key nötig.
 Ziel: **keine Tools außer Dateizugriff im eigenen Session-Verzeichnis**
 `/tmp/captain/<session-id>`, und nichts darf an einer Rückfrage (`ask`) hängen.
 
-### Auswertung in v2.0.20 (aus dem Binary ermittelt und getestet)
+### Auswertung (an 2.0.20 aus dem Binary ermittelt, mit 2.1.2 durch die Integrationstests bestätigt)
 
 - Regeln: `{action, resource, effect}` mit `effect` ∈ `allow|deny|ask`; `*` im
   Muster passt auf alles inkl. `/`.
@@ -176,7 +191,7 @@ Ziel: **keine Tools außer Dateizugriff im eigenen Session-Verzeichnis**
   nicht erst an**. Eine eigene `tools: {bash: false}`-Option gibt es in v2
   nicht (Agent-Config kennt nur `permissions`); das Verbot per Regel erfüllt
   denselben Zweck.
-- `experimental.policies` (`{action: "permission", resource: "<aktion>:<ressource>",
+- `policies` (`{action: "tool.use", resource: "<aktion>:<ressource>",
   effect: "deny"}`) ist eine harte Obergrenze nach den Regeln – auch eine
   Session-Regel `* * allow` kann sie nicht aufheben (Fehler „Blocked by
   configuration policy“).
@@ -206,14 +221,14 @@ Ziel: **keine Tools außer Dateizugriff im eigenen Session-Verzeichnis**
 
 ```jsonc
 "permissions": [ { "action": "*", "resource": "*", "effect": "deny" } ],
-"experimental": { "policies": [   // harte Obergrenze
-  { "action": "permission", "resource": "shell:*",              "effect": "deny" },
-  { "action": "permission", "resource": "websearch:*",          "effect": "deny" },
-  { "action": "permission", "resource": "subagent:*",           "effect": "deny" },
-  { "action": "permission", "resource": "skill:*",              "effect": "deny" },
-  { "action": "permission", "resource": "question:*",           "effect": "deny" },
-  { "action": "permission", "resource": "opencode_*",           "effect": "deny" }
-] }
+"policies": [   // harte Obergrenze
+  { "action": "tool.use", "resource": "shell:*",              "effect": "deny" },
+  { "action": "tool.use", "resource": "websearch:*",          "effect": "deny" },
+  { "action": "tool.use", "resource": "subagent:*",           "effect": "deny" },
+  { "action": "tool.use", "resource": "skill:*",              "effect": "deny" },
+  { "action": "tool.use", "resource": "question:*",           "effect": "deny" },
+  { "action": "tool.use", "resource": "opencode_*",           "effect": "deny" }
+]
 ```
 
 Dazu setzt `start.mjs` `OPENCODE_CONFIG_CONTENT` mit `share: disabled`,
@@ -224,9 +239,9 @@ Muster – siehe „webfetch“) sowie `external_directory:*` deny (mit
 `CAPTAIN_SHARED_DIR` danach `/shared/*` erlaubt, `*.git`, Zugangsdaten und `edit` dort
 verboten – siehe „Geteiltes Verzeichnis“). Eine solche Policy in der Basis würde
 jede Freigabe schlagen (früheste Quelle gewinnt), deshalb stehen beide dort
-nicht; die Admin-Config darf `experimental` nicht setzen.
+nicht; die Admin-Config darf weder `policies` noch `experimental` setzen.
 
-### Pro Session (Bot, `captain.opencode.session_permissions`)
+### Pro Session (Bot, `SessionPermissions.of`)
 
 ```json
 [
@@ -259,7 +274,7 @@ nicht; die Admin-Config darf `experimental` nicht setzen.
 
 Betrieb, Risiken und Admin-Schritte: Haupt-README, Kapitel 10. Technisch
 (aus dem Binary, `FileAccess.resolve`/`authorizeRead`, belegt durch
-`tests/test_shared_integration.py`):
+`SharedIntegrationTest`):
 
 - Pfade werden mit `path.resolve(<session-verzeichnis>, pfad)` **lexikalisch**
   aufgelöst, kein `realpath`; innerhalb des Session-Verzeichnisses (oder des
@@ -288,7 +303,7 @@ Betrieb, Risiken und Admin-Schritte: Haupt-README, Kapitel 10. Technisch
 ### webfetch (Allowlist `CAPTAIN_WEBFETCH_ALLOW`)
 
 Ermittelt aus dem Binary (Tool `opencode.tool.webfetch`, Matcher, Policy-Hook)
-und belegt durch `tests/test_webfetch_integration.py` (Fake-LLM, Testserver
+und belegt durch `WebfetchIntegrationTest` (Fake-LLM, Testserver
 mit mehreren Hostnamen):
 
 - Geprüft wird `assert({action: "webfetch", resources: [url]})` mit der
@@ -337,7 +352,7 @@ zwar auf, das Plugin läuft aber schon), `AGENTS.md` landet im Systemprompt.
 
 Schutz:
 
-1. `OPENCODE_DISABLE_PROJECT_CONFIG=1` im Image (2.0.20 wertet
+1. `OPENCODE_DISABLE_PROJECT_CONFIG=1` im Image (2.0.20 und 2.1.2 werten
    `OPENCODE_CONFIG_PROJECT_DISABLE ?? OPENCODE_DISABLE_PROJECT_CONFIG` aus).
    Damit lädt opencode aus dem Projektverzeichnis weder Config noch Plugins noch
    `.claude`/`.agents`/`AGENTS.md` (getestet: Plugin-Marker bleibt aus, keine
@@ -380,7 +395,7 @@ Session-ID, Muster `^ses`, wird von v2 akzeptiert).
   der Session) → keine Wirkung.
 - Keine Rückfrage, `GET /api/session/{id}/permission` bleibt leer.
 
-Automatisiert: `tests/test_restrict_integration.py` (`pytest -m integration`).
+Automatisiert: `RestrictIntegrationTest` (`./gradlew integrationTest`).
 
 ### Systemanweisungen pro Session
 
@@ -389,7 +404,7 @@ Automatisiert: `tests/test_restrict_integration.py` (`pytest -m integration`).
 Systemprompt (nach `AGENTS.md`), dauerhaft pro Session – übersteht also auch
 Kompaktierung. Der Bot setzt `captain-persona` und `captain-umgebung`.
 
-## API (v2.0.20)
+## API (v2.1.2)
 
 Basis `http://localhost:4096` (im Compose-Netz `http://opencode:4096`), alle Pfade mit
 Basic-Auth. Antworten sind in `{"data": ...}` gekapselt. Vollständig: `openapi.json`
@@ -397,7 +412,7 @@ Basic-Auth. Antworten sind in `{"data": ...}` gekapselt. Vollständig: `openapi.
 
 | Zweck | Methode + Pfad | Body / Hinweise |
 |---|---|---|
-| Server-Info / Health | `GET /api/info` | `{"version":"2.0.20",...}` |
+| Server-Info / Health | `GET /api/info` | `{"version":"2.1.2",...}` |
 | Session anlegen | `POST /api/session` | `{"id":"ses_…","title":"…","location":{"directory":"/tmp/captain/x"},"permissions":[…],"model":{"providerID":"…","id":"…"}}` (alles optional; `id` muss mit `ses` beginnen) → `data.id` (`ses_…`) |
 | Session lesen/löschen | `GET` / `DELETE /api/session/{id}` | |
 | Prompt senden | `POST /api/session/{id}/prompt` | `{"text":"…","delivery":"steer"\|"queue"}` → kehrt sofort zurück (`data.type:"user"`), Ausführung asynchron |

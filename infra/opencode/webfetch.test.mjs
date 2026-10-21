@@ -1,6 +1,6 @@
 // Unit-Tests fuer die webfetch-Allowlist in start.mjs und den Egress-Filter
 // (egress.mjs): node --test infra/opencode/webfetch.test.mjs
-// (laeuft auch ueber pytest: tests/test_start_script.py)
+// (laeuft auch ueber JUnit: StartScriptTest bzw. ./gradlew nodeTest)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
@@ -10,10 +10,10 @@ import { allowedTargets, bypass, createGuard, key, startGuard, target, upstream 
 import { sharedPolicies } from "./shared.mjs";
 import { environment, normalizeWebfetchEntry, parseJsonc, parseWebfetchAllow, webfetchPatterns, webfetchPolicies } from "./start.mjs";
 
-const CASES = JSON.parse(fs.readFileSync(new URL("../../tests/data/webfetch_allow.json", import.meta.url), "utf8"));
+const CASES = JSON.parse(fs.readFileSync(new URL("../../src/test/resources/data/webfetch_allow.json", import.meta.url), "utf8"));
 const BASE = parseJsonc(fs.readFileSync(new URL("./config/base.jsonc", import.meta.url), "utf8"));
 
-// Nachbau von opencode 2.0.20 (Funktion JD und Policy-Hook, aus dem Binary)
+// Nachbau von opencode (an 2.0.20 ermittelt; Funktion JD und Policy-Hook, aus dem Binary)
 function wildcard(value, pattern) {
   const v = value.replaceAll("\\", "/");
   let rx = pattern.replaceAll("\\", "/").replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
@@ -23,13 +23,13 @@ function wildcard(value, pattern) {
 // Quellen in Ladereihenfolge; opencode dreht sie um und nimmt den LETZTEN
 // Treffer -> die frueheste Quelle (Sicherheitsbasis) gewinnt.
 function blocked(sources, action, resource) {
-  const list = [...sources].reverse().flatMap((s) => s.experimental?.policies ?? []);
-  const hit = list.findLast((p) => p.action === "permission" && wildcard(`${action}:${resource}`, p.resource));
+  const list = [...sources].reverse().flatMap((s) => [...(s.experimental?.policies ?? []), ...(s.policies ?? [])]);
+  const hit = list.findLast((p) => p.action === "tool.use" && wildcard(`${action}:${resource}`, p.resource));
   return hit?.effect === "deny";
 }
 const content = (env) => JSON.parse(env.OPENCODE_CONFIG_CONTENT);
 
-test("Normalisierung: gemeinsame Testfaelle (wie captain/webfetch.py)", () => {
+test("Normalisierung: gemeinsame Testfaelle (wie Webfetch.java)", () => {
   for (const c of CASES.valid) assert.deepEqual(parseWebfetchAllow(c.input), c.prefixes, c.input);
   for (const entry of CASES.invalid) {
     assert.throws(() => parseWebfetchAllow(entry), /CAPTAIN_WEBFETCH_ALLOW/, entry);
@@ -39,7 +39,7 @@ test("Normalisierung: gemeinsame Testfaelle (wie captain/webfetch.py)", () => {
 });
 
 test("Sicherheitsbasis enthaelt keine webfetch-/external_directory-Policy (sonst gewaenne sie gegen jede Freigabe)", () => {
-  const policies = BASE.experimental.policies.map((p) => p.resource);
+  const policies = BASE.policies.map((p) => p.resource);
   assert.ok(!policies.some((r) => r.startsWith("webfetch") || r.startsWith("external_directory")), policies);
   for (const r of ["shell:*", "websearch:*", "subagent:*", "skill:*", "question:*", "opencode_*"]) {
     assert.ok(policies.includes(r), r);
@@ -62,9 +62,9 @@ test("Policies: Allowlist als Obergrenze, Angriffsmuster abgelehnt", () => {
 });
 
 test("Policies ohne Allowlist: webfetch komplett gesperrt", () => {
-  assert.deepEqual(webfetchPolicies([]), [{ action: "permission", resource: "webfetch:*", effect: "deny" }]);
+  assert.deepEqual(webfetchPolicies([]), [{ action: "tool.use", resource: "webfetch:*", effect: "deny" }]);
   const env = environment({}, ["llm"]);
-  assert.deepEqual(content(env).experimental.policies, [...webfetchPolicies([]), ...sharedPolicies(false)]);
+  assert.deepEqual(content(env).policies, [...webfetchPolicies([]), ...sharedPolicies(false)]);
   assert.ok(blocked([BASE, {}, content(env)], "webfetch", "http://text-example.org/"));
 });
 

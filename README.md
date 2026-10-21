@@ -12,23 +12,29 @@ opencode-Session.
 compose.deploy.yml        Betrieb: opencode + Bot gegen ein bestehendes Mattermost
 .env.example              Vorlage der Betriebs-.env
 compose.yml               Test-Setup (bindet infra/*/compose.yml ein) + Bot-Service
-Dockerfile                Bot-Image (python:3.12-slim)
-infra/mattermost/         Mattermost 9.11.15 + Postgres   (Port 8065)
+Dockerfile                Bot-Image (Gradle-Build, eclipse-temurin:21-jre)
+build.gradle.kts          Gradle (Kotlin DSL): Spring Boot 4.1, Java 21
+infra/mattermost/         Mattermost 9.11.15 + Postgres   (Port 8065), seed.py/verify.py
 infra/opencode/           opencode serve (Image, Sicherheitsbasis, Config-Vorlagen)
-captain/
-├─ config.py              Konfiguration aus Umgebung (+ optional JSON)
-├─ sessions.py            Session-Store und Lock pro Session
-├─ mattermost.py          Mattermost-Client (REST + WebSocket), PostStreamer
-├─ opencode.py            opencode-Client (REST + SSE, API v2)
-├─ routing.py             Wann/wo antworten: should_answer, Antwort-Thread, Session-Key, Vorgeschichte
-├─ bot.py                 Bot-Logik: Warteschlange pro Session, Befehle, Streaming, Nachholen
-├─ catchup.py             Nachholen verpasster Posts: Ablauf, Startpunkt, Auswahl
-├─ cursors.py             Cursor pro Kanal, beantwortete Posts (DATA_DIR/cursors.json)
-├─ webfetch.py            webfetch-Allowlist: Normalisierung, Session-Regeln
-├─ shared.py              Geteiltes Verzeichnis /shared: Pfadprüfung, Session-Regeln
-├─ __main__.py            Einstieg: python -m captain
-scripts/e2e.py            Ende-zu-Ende-Test gegen das laufende Setup
-tests/                    pytest (fake_llm.py: Fake-LLM, mcp_testserver/: Test-MCP-Server)
+infra/mcp-test/           Test-MCP-Server für Probeläufe gegen den Betriebs-Stack
+src/main/java/com/ewerlin/captain/
+├─ CaptainApplication     Einstieg (Spring Boot, ohne Webserver)
+├─ CaptainConfiguration   Beans: Konfiguration, Clients, Bot
+├─ BotLifecycle           Startet den Bot, beendet ihn geordnet (SIGTERM)
+├─ config/                Konfiguration aus Umgebung (+ optional JSON): ConfigLoader, CaptainConfig
+├─ mattermost/            Mattermost-Client (REST + WebSocket), Post, PostStreamer
+├─ opencode/              opencode-Client (REST + SSE, API v2), EventHub, SessionPermissions
+├─ bot/
+│  ├─ Bot                 Bot-Logik: Warteschlange pro Session, Befehle, Streaming, Nachholen
+│  ├─ Routing             Wann/wo antworten: shouldAnswer, Antwort-Thread, Session-Key, Vorgeschichte
+│  ├─ SessionStore        Session-Store (DATA_DIR/sessions.json); SessionKeys: Keys, IDs, Systemanweisungen
+│  ├─ Catchup             Nachholen verpasster Posts: Startpunkt, Auswahl
+│  └─ CursorStore         Cursor pro Kanal, beantwortete Posts (DATA_DIR/cursors.json)
+├─ policy/                Webfetch (Allowlist), SharedDir (geteiltes Verzeichnis /shared)
+└─ util/                  JSON, HTTP (Proxy aus der Umgebung), Hilfen
+src/test/java/…           JUnit 5: Unit-Tests, Integrationstests (Tag "integration", Paket it/)
+src/test/resources/data/  Testdaten, gemeinsam mit den Node-Tests von infra/opencode
+scripts/e2e.py            Ende-zu-Ende-Test gegen das laufende Setup (Python, nur stdlib)
 ```
 
 ## Betrieb mit bestehendem Mattermost
@@ -145,22 +151,26 @@ einem Kanal `@captain Hallo` (Antwort als Thread unter dem Post), dort
 #### Hinter einem Proxy
 
 - **Build:** Die Images werden im Host-Netz gebaut (`build.network: host`),
-  `npm`/`pip`/`curl` sehen also DNS, `/etc/hosts` und Proxy-Einstellungen
+  `npm`/Gradle/`curl` sehen also DNS, `/etc/hosts` und Proxy-Einstellungen
   des Hosts. Paketquellen von Linux-Distributionen werden nicht gebraucht –
-  nötig sind nur Docker Hub, `registry.npmjs.org`, `pypi.org` /
-  `files.pythonhosted.org` und `github.com` (ripgrep-Release). Braucht der Host für Internetzugriff einen Proxy, muss Docker ihn
+  nötig sind nur Docker Hub, `registry.npmjs.org`, Maven Central
+  (`repo.maven.apache.org`), das Gradle-Plugin-Portal (`plugins.gradle.org`)
+  und `github.com` (ripgrep-Release). Braucht der Host für Internetzugriff einen Proxy, muss Docker ihn
   kennen – `~/.docker/config.json` (`"proxies": {"default": {"httpProxy": …,
   "httpsProxy": …, "noProxy": …}}`) oder die Systemd-Konfiguration des
-  Docker-Daemons.
-  Fehlerbild ohne das: `ProxyError('Cannot connect to proxy.' … Temporary
-  failure in name resolution)` bei `pip install`.
+  Docker-Daemons. Gradle liest die Proxy-Variablen nicht selbst; das Bot-Image
+  übersetzt sie beim Build (`docker/gradle-proxy.sh`).
+  Fehlerbild ohne Proxy: `Could not resolve all files …` bzw. `Connect to
+  repo.maven.apache.org … failed` beim Gradle-Schritt des Bot-Images.
 - **Laufzeit:** Bot und opencode nutzen **nur** `CAPTAIN_HTTP_PROXY` /
   `CAPTAIN_HTTPS_PROXY` aus der `.env` – ein Proxy aus der Host-Shell oder
   `~/.docker/config.json` wird bewusst überschrieben, weil sein Name im
   Container oft nicht auflösbar ist. Den Proxy daher als IP oder per DNS
   auflösbaren Namen angeben. Ziele, die direkt erreichbar sind (internes
   Mattermost, vLLM/Open WebUI), in `CAPTAIN_NO_PROXY` eintragen; die interne
-  Verbindung Bot → opencode läuft immer direkt.
+  Verbindung Bot → opencode läuft immer direkt. Zugangsdaten in der Proxy-URL
+  (`http://user:pass@proxy:3128`, Sonderzeichen prozentkodiert) nutzt der Bot
+  per Basic-Auth, auch für HTTPS und den WebSocket.
 - **Eigene CA:** Meldet das opencode-Log `UNABLE_TO_VERIFY_LEAF_SIGNATURE`
   bzw. `unable to verify the first certificate`, ist der LLM-Endpunkt (oder ein
   TLS-aufbrechender Proxy) mit einer internen CA signiert. Die CA als PEM nach
@@ -220,12 +230,11 @@ sensible Dienste mitnutzen und Docker aktuell halten.
 
 ### 7. opencode-Config anpassen (ohne Rebuild)
 
-opencode 2.0.20 liest mehrere Config-Quellen in fester Reihenfolge (aus dem
-Binary ermittelt, per Test belegt):
+opencode 2.1.2 liest mehrere Config-Quellen in fester Reihenfolge (an 2.0.20 aus dem Binary ermittelt, mit 2.1.2 durch die Integrationstests bestätigt):
 
 1. **Sicherheitsbasis im Image** (`infra/opencode/config/base.jsonc` →
    `/root/.config/opencode/opencode.jsonc`): globales `* * deny` und
-   `experimental.policies` gegen Shell, Websuche, Subagenten, Skills,
+   `policies` gegen Shell, Websuche, Subagenten, Skills,
    Rückfragen und MCP-Ressourcen; Projekt-Config aus.
    Die Policies für webfetch und fremde Verzeichnisse setzt das Startskript
    (Punkt 3).
@@ -267,21 +276,21 @@ Einzelwerte kommen aus der letzten Quelle. Die Admin-Config kann darum
 eine Admin-Config mit `* * allow` und eigenen `allow`-Policies lässt die Shell
 unsichtbar, und ohne die Session-Regeln scheitern die Aufrufe an der Policy
 („Blocked by configuration policy“) – belegt durch
-`tests/test_config_layers_integration.py`.
+`ConfigLayersIntegrationTest`.
 
-Warum die Allowlist: opencode 2.0.20 führt `plugins` (JavaScript im
+Warum die Allowlist: opencode führt `plugins` (JavaScript im
 Server), lokale MCP-Server (`type: "local"` = beliebiger Prozess als root),
 `agents` (Rechte/Systemprompt der Agenten), `commands`, `skills`,
-`instructions`, `references`, `shell`, `enterprise`, `default_agent` und
-`experimental` aus **jeder** Config-Quelle zusammen; eine feste Basis kann
+`instructions`, `references`, `shell`, `enterprise`, `default_agent`,
+`policies` und `experimental` aus **jeder** Config-Quelle zusammen; eine feste Basis kann
 sie nicht überschreiben. Diese Schlüssel **nicht verwenden – sie hebeln die
 Sicherheit aus**; das Startskript verwirft sie. Belegt durch
-`tests/test_config_layers_integration.py`: Ohne Startskript führt opencode
+`ConfigLayersIntegrationTest`: Ohne Startskript führt opencode
 ein Plugin bzw. einen lokalen MCP-Server aus der Admin-Config aus, mit
 Startskript nicht; `{env:…}`-Tricks (`"type": "{env:X}"`, `.env`-Werte mit
 `"`, die neue Schlüssel erzeugen würden), `{file:…}` und Verweise auf
 `MM_BOT_TOKEN`/`OPENCODE_SERVER_PASSWORD` greifen nicht (dazu Node-Unit-Tests
-`infra/opencode/start.test.mjs`, ausgeführt über `tests/test_start_script.py`).
+`infra/opencode/start.test.mjs`, ausgeführt über `StartScriptTest` bzw. `./gradlew nodeTest`).
 
 Code Mode (`execute`) prüft opencode nicht über Policies (getestet); gesperrt
 ist es durch das globale `* * deny` und die Session-Regeln des Bots.
@@ -339,11 +348,11 @@ globale `* * deny` gesperrt und wird dem Modell gar nicht angeboten.
   Wiederverbinden des Event-Streams – ein Neustart des Bots ist nicht nötig.
   Verbindungsfehler stehen im Log von `opencode` bzw. als Warnung im Bot-Log.
 
-Nachweis mit dem Test-Server `tests/mcp_testserver/` (`wuerfeln`
+Nachweis mit dem Test-Server `infra/mcp-test/` (`wuerfeln`
 freigegeben, `geheim` nicht): `wuerfeln` funktioniert im Chat, `geheim` und
 die Shell werden dem Modell nicht angeboten (Aufrufversuch: „No tool named …“).
 Einbinden für einen Probelauf: `compose.deploy.yml` plus
-`tests/mcp_testserver/compose.yml` (siehe dort).
+`infra/mcp-test/compose.yml` (siehe dort).
 
 ### 9. webfetch für bestimmte URLs erlauben
 
@@ -383,12 +392,12 @@ Durchgesetzt wird an drei Stellen:
 
 | Sperre | Wo | Wirkung |
 |---|---|---|
-| Session-Regeln | Bot, `captain/webfetch.py` | nach `webfetch * deny` je Präfix `p` die Muster `p` und `p/*` erlaubt, danach `..`/Tab/Zeilenumbruch verboten. Letzte Regel gewinnt – Freigaben der Admin-Config (auch `{"action":"webfetch","resource":"*","effect":"allow"}`) ändern nichts |
+| Session-Regeln | Bot, `policy/Webfetch.java` | nach `webfetch * deny` je Präfix `p` die Muster `p` und `p/*` erlaubt, danach `..`/Tab/Zeilenumbruch verboten. Letzte Regel gewinnt – Freigaben der Admin-Config (auch `{"action":"webfetch","resource":"*","effect":"allow"}`) ändern nichts |
 | Policies (Obergrenze) | `infra/opencode/start.mjs` → `OPENCODE_CONFIG_CONTENT` | dieselben Muster als `webfetch:<muster>`; gilt auch ohne Session-Regeln. Die Admin-Config kann keine Policies setzen |
 | Egress-Filter | `infra/opencode/egress.mjs` (im Startskript) | nur mit Allowlist aktiv: opencode erreicht nur Allowlist-Hosts und die eigenen Endpunkte (`baseURL` der Provider, MCP-URLs, Cloud-APIs mit Key) – fängt Weiterleitungen ab, Log `[captain-egress] blockiert: …` |
 
-Was opencode 2.0.20 bei webfetch prüft (aus dem Binary, belegt durch
-`tests/test_webfetch_integration.py`): die **rohe URL** des Modells, gegen
+Was opencode bei webfetch prüft (an 2.0.20 aus dem Binary ermittelt, für 2.1.2 belegt durch
+`WebfetchIntegrationTest`): die **rohe URL** des Modells, gegen
 Muster mit `*` (beliebig, auch `/`), `?` (genau ein Zeichen) und
 Groß-/Kleinschreibung; `\` zählt als `/`. **Weiterleitungen folgt opencode
 ungeprüft** – ohne Filter lieferte `http://text-example.org/redirect?to=http://evil.test/…`
@@ -490,7 +499,7 @@ des Verzeichnisses dagegen nicht, siehe oben):
 2. **`CAPTAIN_SHARED_DIR` selbst darf ein Symlink sein**, z. B.
    `CAPTAIN_SHARED_DIR=/opt/captain/shared/infos` → `/data/git/infos`: Docker
    löst die Quelle beim **Anlegen** des Containers auf (belegt durch
-   `tests/test_shared_integration.py`). Nach einer Änderung des Link-Ziels:
+   `SharedIntegrationTest`). Nach einer Änderung des Link-Ziels:
    `docker compose -f compose.deploy.yml up -d --force-recreate opencode`
    (ein einfaches `up -d` merkt das nicht). Das Ziel darf nicht in
    `CAPTAIN_HOME` liegen (außer unter `shared/`).
@@ -501,9 +510,9 @@ Durchgesetzt wird an mehreren Stellen:
 |---|---|---|
 | Mount `:ro` | `compose.deploy.yml` | Schreiben scheitert am Kernel; ist `/shared` beschreibbar, startet opencode nicht. Ohne Variable hängt dort das leere Volume `shared-leer` (kein Host-Verzeichnis) |
 | Policies (Obergrenze) | `infra/opencode/shared.mjs` → `OPENCODE_CONFIG_CONTENT` | immer `external_directory:*` deny; mit Variable danach `external_directory:/shared/*` erlaubt, dann `*.git` (für `external_directory` und `read`), Zugangsdaten-Dateien (`read`) und `edit:/shared`, `edit:/shared/*` verboten. Gilt auch ohne Session-Regeln; die Admin-Config kann keine Policies setzen. Die Sicherheitsbasis enthält deshalb keine `external_directory`-Policy mehr |
-| Session-Regeln | Bot, `captain/shared.py` | nach den Verboten: `external_directory /shared/*`, `read /shared` und `/shared/*` erlaubt, danach `*.git`, Zugangsdaten und `edit` unter `/shared` verboten (letzte Regel gewinnt – Admin-Freigaben ändern nichts) |
+| Session-Regeln | Bot, `policy/SharedDir.java` | nach den Verboten: `external_directory /shared/*`, `read /shared` und `/shared/*` erlaubt, danach `*.git`, Zugangsdaten und `edit` unter `/shared` verboten (letzte Regel gewinnt – Admin-Freigaben ändern nichts) |
 | Prüfung | `infra/opencode/shared.mjs` | Start und alle 10 s, begrenzt auf Einträge/Zeit: Symlinks, Mountpoints (`/proc/self/mountinfo` und Gerätenummer) u. a. (siehe oben) → kein Start bzw. opencode beendet |
-| Pfadprüfung | Bot (`captain/shared.py`) und Startskript | absolut, kein Systemverzeichnis, unter `CAPTAIN_HOME` nur `shared/…`; gemeinsame Testfälle `tests/data/shared_dir.json` |
+| Pfadprüfung | Bot (`policy/SharedDir.java`) und Startskript | absolut, kein Systemverzeichnis, unter `CAPTAIN_HOME` nur `shared/…`; gemeinsame Testfälle `src/test/resources/data/shared_dir.json` |
 
 Shell, Websuche, Code Mode, Subagenten, Skills, andere Verzeichnisse und die
 webfetch-Allowlist bleiben unverändert; die Admin-Config kann nicht mehr als
@@ -512,8 +521,8 @@ Linie, wirkt mit Docker aber nicht (getestet: über ein `local`-Volume mit
 `o=bind,ro,nosymfollow` gibt Docker sie nur als Daten-String weiter, der
 Symlink wird weiter aufgelöst) – deshalb nicht verwendet.
 
-Was opencode 2.0.20 bei Pfaden prüft (aus dem Binary, `FileAccess.resolve`,
-belegt durch `tests/test_shared_integration.py`): Der Pfad des Modells wird
+Was opencode bei Pfaden prüft (an 2.0.20 aus dem Binary, `FileAccess.resolve`, für 2.1.2
+belegt durch `SharedIntegrationTest`): Der Pfad des Modells wird
 **lexikalisch** aufgelöst (`path.resolve` gegen das Session-Verzeichnis, `..`
 fällt weg, **kein realpath**). Liegt er außerhalb des Session-Verzeichnisses,
 prüft opencode `external_directory` mit `<verzeichnis>/*` (bei einer Datei das
@@ -565,7 +574,7 @@ oben.
 ```sh
 docker compose up -d mattermost opencode      # 1. Mattermost + opencode (infra/opencode/.env vorher anlegen)
 python infra/mattermost/seed.py               # 2. Nutzer, Kanäle, Bot → infra/mattermost/generated.env
-docker compose up -d --build captain          # 3. Bot starten
+docker compose up -d --build captain          # 3. Bot bauen (Gradle im Image) und starten
 python scripts/e2e.py                         #    optional: Ende-zu-Ende-Test
 python scripts/e2e.py --restart               #    optional: Nachholen nach Neustart (stoppt/startet den Bot)
 ```
@@ -575,7 +584,7 @@ anmelden und dem Bot `captain` schreiben. Logs: `docker compose logs -f captain`
 
 ## Verhalten
 
-- **Wann er antwortet** (`captain/routing.py`, `should_answer`):
+- **Wann er antwortet** (`bot/Routing.java`, `shouldAnswer`):
 
   | Ort | Reaktion | Antwort erscheint |
   |---|---|---|
@@ -651,8 +660,8 @@ anmelden und dem Bot `captain` schreiben. Logs: `docker compose logs -f captain`
   als „_(abgebrochen)_“.
 - **Anhänge** landen im Arbeitsverzeichnis der Session und gehen als `files`
   an opencode.
-- **Nachholen nach Neustart/Verbindungslücke** (`captain/catchup.py`,
-  `captain/cursors.py`): Keine an Captain gerichtete Nachricht soll verloren
+- **Nachholen nach Neustart/Verbindungslücke** (`bot/Catchup.java`,
+  `bot/CursorStore.java`): Keine an Captain gerichtete Nachricht soll verloren
   gehen, keine doppelt beantwortet werden.
   - *Cursor pro Kanal* in `DATA_DIR/cursors.json` (atomar, gedrosselt): der
     neueste gesehene Post, aber nie über einen angenommenen, noch nicht fertig
@@ -694,8 +703,11 @@ anmelden und dem Bot `captain` schreiben. Logs: `docker compose logs -f captain`
 
 ## Konfiguration
 
-Werte kommen aus Umgebungsvariablen; optional zusätzlich aus einer JSON-Datei,
-deren Pfad in `CAPTAIN_CONFIG` steht (gleiche Schlüssel, Umgebung gewinnt).
+Werte kommen aus Umgebungsvariablen (genauer: Springs `Environment` – auch
+`-DMM_URL=…` oder `--MM_URL=…` auf der Kommandozeile funktionieren); optional
+zusätzlich aus einer JSON-Datei, deren Pfad in `CAPTAIN_CONFIG` steht (gleiche
+Schlüssel, Umgebung gewinnt). Eine fehlende oder ungültige Einstellung beendet
+den Bot mit `APPLICATION FAILED TO START … [Captain] …` im Log und Exit-Code 2.
 
 | Variable            | Pflicht | Default       | Bedeutung                               |
 |---------------------|---------|---------------|-----------------------------------------|
@@ -717,7 +729,7 @@ deren Pfad in `CAPTAIN_CONFIG` steht (gleiche Schlüssel, Umgebung gewinnt).
 | `CAPTAIN_WEBFETCH_ALLOW` | nein | leer = aus   | Kommagetrennte URL-Präfixe für `webfetch` (Session-Regeln, Systemhinweis); ungültig → Start bricht ab |
 | `CAPTAIN_SHARED_DIR` | nein   | leer = aus    | Host-Pfad des geteilten Verzeichnisses; gesetzt = Session-Regeln und Systemhinweis für `/shared` (nur lesen); ungültig (auch gegen `CAPTAIN_HOME`) → Start bricht ab |
 | `CAPTAIN_HOME`      | nein    |               | nur für die Prüfung von `CAPTAIN_SHARED_DIR` (darunter nur `shared/…`); muss absolut sein |
-| `LOG_LEVEL`         | nein    | `INFO`        | Log-Level (nur Umgebung)                 |
+| `LOG_LEVEL`         | nein    | `INFO`        | Log-Level (`DEBUG`, `INFO`, `WARN`, …)   |
 
 Im Container setzt `compose.yml` `MM_URL`/`OPENCODE_URL` auf die
 Service-Namen (Vorrang vor den `env_file`s, die `localhost` enthalten) und
@@ -766,59 +778,60 @@ solches kennt: `image` muss in `capabilities.input` des Modells stehen
 (`GET /api/model`). Für Ollama liefert die Discovery das automatisch (z. B.
 `gemma4:e4b`, `gemma3:4b`: `["text", "image"]`); fehlt es bei einem Modell,
 lässt es sich in `infra/opencode/config/opencode.jsonc` unter
-`providers.<provider>.models.<modell>` ergänzen. In opencode 2.0.20 heißt
+`providers.<provider>.models.<modell>` ergänzen. In opencode 2.x heißt
 das Feld `capabilities` (das ältere `modalities` gibt es dort nicht), z. B.
 `"capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] }`.
 Ohne `image` erreicht das Bild das Modell nicht, und es rät.
 
 PDF/Office werden derzeit nicht ausgewertet. Vorschlag: Captain extrahiert
-beim Laden den Text (PDF z. B. mit `pypdf`, Office mit `python-docx`/
-`openpyxl` oder generisch per `markitdown`) und legt ihn als
+beim Laden den Text (PDF z. B. mit Apache PDFBox, Office mit Apache POI
+oder generisch mit Apache Tika) und legt ihn als
 `<name>.txt` daneben ins Session-Verzeichnis – dann greift der Weg für
 Textdateien inklusive `read`. Gescannte PDFs bräuchten OCR bzw. ein Modell
 mit `pdf`-Eingabe.
 
 ## opencode-Client
 
-`captain/opencode.py` spricht die v2-API von `opencode serve`
-(`@opencode/cli@2.0.20`, Basic-Auth-Benutzer `opencode`).
+`opencode/OpencodeClient.java` spricht die v2-API von `opencode serve`
+(`@opencode/cli@2.1.2`, Basic-Auth-Benutzer `opencode`).
 
-```python
-with OpencodeClient(url, password) as oc:
-    d = "/tmp/captain/ses_abc"                      # vorher anlegen!
-    sid = oc.create_session(d, title="DM abc", session_id="ses_abc",
-                            permissions=session_permissions(d))
-    oc.set_instructions(sid, {"captain-persona": "Du bist …"})
-    text = oc.prompt(sid, "Hallo", directory=d,
-                     model="ollama/gemma4:e4b",
-                     on_delta=lambda t: ..., on_status=lambda s: ...)
+```java
+try (OpencodeClient oc = new OpencodeClient(url, password)) {
+    String d = "/tmp/captain/ses_abc";                 // vorher anlegen!
+    String sid = oc.createSession(d, "DM abc", SessionPermissions.of(d), "ses_abc");
+    oc.setInstructions(sid, Map.of("captain-persona", "Du bist …"));
+    String text = oc.prompt(sid, "Hallo", PromptOptions.in(d)
+            .model("ollama/gemma4:e4b", null)
+            .onDelta(t -> …).onStatus(s -> …));
+}
 ```
 
 - **MCP:** opencode verbindet MCP-Server pro Verzeichnis erst beim ersten
-  Zugriff; `prompt` ruft deshalb vorher `ensure_mcp(directory)` auf
+  Zugriff; `prompt` ruft deshalb vorher `ensureMcp(directory)` auf
   (`GET /api/mcp?location[directory]=…`, wartet auf `pending`-Server,
   höchstens 10 s). Ohne konfigurierte Server kostet das einmalig ≤ 3 s.
 - **Verzeichnisse** sind Pfade *im opencode-Container* und müssen existieren,
-  bevor gepromptet wird (sonst HTTP 500 → `OpencodeError`). Der Client legt
+  bevor gepromptet wird (sonst HTTP 500 → `OpencodeException`). Der Client legt
   sie nicht an; der Bot erzeugt sie im geteilten Volume `captain-tmp`.
-- `create_session(directory, title=None, permissions=None, *, session_id=None)`:
-  `permissions` sind Session-Regeln (`[{action, resource, effect}]`), die
-  opencode hinter die globalen hängt (letzte passende gewinnt);
-  `session_permissions(directory)` liefert die Captain-Regeln.
-  `set_instructions(sid, {key: text})` setzt dauerhafte Systemanweisungen.
-- **Event-Stream:** ein gemeinsamer SSE-Reader-Thread pro Client verteilt
-  Events nach Session-ID an die laufenden `prompt`-Aufrufe (Registrierung
-  vor dem Absenden, Reconnect mit Backoff). Nach einem Abriss oder bei Stille
-  gleicht `prompt` per `GET /api/session/{id}/message` ab (die Ausführung ist
-  fertig, sobald nach der eigenen User-Nachricht eine `idle`-Nachricht steht;
-  ausgewertet wird nur bis zu diesem ersten `idle`) und holt den finalen Text
-  von dort. Steht die eigene Nachricht schon in der Historie, gilt sie als
-  zugestellt, auch wenn das Event dazu verpasst wurde.
-- `on_delta` erhält immer den **gesamten** bisherigen Text; mehrere
+- `createSession(directory, title, permissions, sessionId)`: `permissions`
+  sind Session-Regeln (`Rule(action, resource, effect)`), die opencode hinter
+  die globalen hängt (letzte passende gewinnt); `SessionPermissions.of(directory)`
+  liefert die Captain-Regeln. `setInstructions(sid, {key: text})` setzt
+  dauerhafte Systemanweisungen.
+- **Event-Stream:** ein gemeinsamer SSE-Reader-Thread pro Client (`EventHub`)
+  verteilt Events nach Session-ID an die laufenden `prompt`-Aufrufe
+  (Registrierung vor dem Absenden, Reconnect mit Backoff, Neuverbindung nach
+  60 s ohne Daten). Nach einem Abriss oder bei Stille gleicht `prompt` per
+  `GET /api/session/{id}/message` ab (die Ausführung ist fertig, sobald nach
+  der eigenen User-Nachricht eine `idle`-Nachricht steht; ausgewertet wird nur
+  bis zu diesem ersten `idle`) und holt den finalen Text von dort. Steht die
+  eigene Nachricht schon in der Historie, gilt sie als zugestellt, auch wenn
+  das Event dazu verpasst wurde.
+- `onDelta` erhält immer den **gesamten** bisherigen Text; mehrere
   Textblöcke (Text → Tool → Text) werden mit Leerzeile verbunden.
   Denkspur (`reasoning`) wird nie weitergegeben.
-- Fehler: `SessionGone` (404), `Interrupted` (abgebrochen, Unterklasse von
-  `OpencodeError`), sonst `OpencodeError`.
+- Fehler: `SessionGoneException` (404), `PromptInterruptedException`
+  (abgebrochen), beide Unterklassen von `OpencodeException`.
 
 ## Test-Setup
 
@@ -828,12 +841,29 @@ und `infra/opencode/README.md` beschrieben; gestartet wird alles über die
 
 ## Entwicklung
 
+Java 21 (z. B. Temurin oder Microsoft Build of OpenJDK) und der Gradle-Wrapper
+genügen; Node ≥ 18 nur für die Tests des opencode-Startskripts (sonst
+übersprungen).
+
 ```sh
-python -m venv .venv
-.venv/Scripts/python -m pip install -e ".[test]"   # Linux: .venv/bin/python
-.venv/Scripts/python -m pytest                     # Unit-Tests
-.venv/Scripts/python -m pytest -m integration      # gegen das laufende Test-Setup
+./gradlew test                    # Unit-Tests (inkl. Node-Tests von infra/opencode, falls node da ist)
+./gradlew integrationTest         # gegen das laufende Test-Setup bzw. Docker (Tag "integration")
+./gradlew nodeTest                # nur die Node-Tests von infra/opencode
+./gradlew bootJar                 # build/libs/captain.jar
+java -jar build/libs/captain.jar  # lokal starten (Umgebung wie im Container, z. B. MM_URL=http://localhost:8065)
 ```
+
+Integrationstests (`src/test/java/…`, Tag `integration`; einzeln z. B. mit
+`./gradlew integrationTest --tests '*WebfetchIntegrationTest'`):
+
+| Test | braucht | prüft |
+|---|---|---|
+| `MattermostIntegrationTest` | laufendes Test-Mattermost | WebSocket (DM, Gruppe, privat), Fortsetzen nach Abbruch, `PostStreamer` |
+| `OpencodeIntegrationTest` | laufendes opencode (`docker compose up -d opencode`) | Sessions, Modelle, Kontext, Deltas, parallele Prompts, Abbruch |
+| `RestrictIntegrationTest` | laufendes opencode | keine Shell/kein Web, nur das eigene Verzeichnis, Projekt-Config wirkungslos, Persona |
+| `ConfigLayersIntegrationTest` | Docker, Image `captain/opencode:2.1.2` | Admin-Config vs. Sicherheitsbasis, MCP-Allowlist, Startskript |
+| `WebfetchIntegrationTest` | Docker, Image | webfetch-Allowlist, Policies, Egress-Filter |
+| `SharedIntegrationTest` | Docker, Image | `/shared` nur lesen, Symlink-/Mount-Prüfung |
 
 Die Mattermost-Integrationstests lesen die Zugangsdaten aus der von
 `infra/mattermost/seed.py` erzeugten env-Datei (Default
@@ -843,9 +873,20 @@ Die opencode-Integrationstests lesen analog
 `C:/source/captain-shared/opencode.env` (`CAPTAIN_OC_ENV`), sprechen
 `OPENCODE_URL` (Default `http://localhost:4096`) an und arbeiten im
 Container-Verzeichnis `CAPTAIN_OC_DIR` (Default `/tmp`). Die Restriktions-Tests
-(`tests/test_restrict_integration.py`) legen Session-Verzeichnisse unter
-`/tmp/captain` per `docker exec` im Container `CAPTAIN_OC_CONTAINER` (Default
-`captain-opencode-1`) an. Mit einem lokalen CPU-Modell dauert der erste
-Prompt nach Kaltstart ~2 min.
+legen Session-Verzeichnisse unter `/tmp/captain` per `docker exec` im
+Container `CAPTAIN_OC_CONTAINER` (Default `captain-opencode-1`) an. Die
+Docker-Tests starten eigene opencode-Container aus `CAPTAIN_OC_IMAGE` (Default
+`captain/opencode:2.1.2`, gebaut mit `docker compose -f compose.deploy.yml
+build`) und dazu im Testprozess ein Fake-LLM, einen Test-MCP-Server und einen
+Web-Testserver; fehlen Docker oder Image, werden sie übersprungen. Mit einem
+lokalen CPU-Modell dauert der erste Prompt nach Kaltstart ~2 min.
 
-Python ≥ 3.11.
+Der Ende-zu-Ende-Test `scripts/e2e.py` (Python ≥ 3.11, nur stdlib, ebenso
+`infra/mattermost/seed.py`/`verify.py`) prüft den laufenden Bot von außen über
+die Mattermost-API und ist von der Implementierung des Bots unabhängig:
+
+```sh
+python scripts/e2e.py                 # DM, Kanal, Gruppe, Threads, Warteschlange, Befehle
+python scripts/e2e.py --restart       # Nachholen nach Neustart, Abbruch während des Streamings
+python scripts/e2e.py --attachments   # Anhänge (Text, Bild, PDF, Größengrenze)
+```

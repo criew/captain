@@ -5,8 +5,8 @@ services:
     build:
       context: .
       args:
-        OPENCODE_VERSION: "2.0.20"
-    image: captain-opencode:2.0.20
+        OPENCODE_VERSION: "2.1.2"
+    image: captain-opencode:2.1.2
     restart: unless-stopped
     env_file:
       - path: .env

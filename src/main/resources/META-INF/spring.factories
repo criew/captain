@@ -1,0 +1,2 @@
+org.springframework.boot.diagnostics.FailureAnalyzer=\
+com.ewerlin.captain.config.ConfigFailureAnalyzer

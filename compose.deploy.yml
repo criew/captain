@@ -40,8 +40,8 @@ services:
       # npm/pip/curl (sonst z. B. „Cannot connect to proxy … name resolution“)
       network: host
       args:
-        OPENCODE_VERSION: "2.0.20"
-    image: captain/opencode:2.0.20
+        OPENCODE_VERSION: "2.1.2"
+    image: captain/opencode:2.1.2
     entrypoint:
       - sh
       - -c
@@ -64,8 +64,8 @@ services:
       context: infra/opencode
       network: host
       args:
-        OPENCODE_VERSION: "2.0.20"
-    image: captain/opencode:2.0.20
+        OPENCODE_VERSION: "2.1.2"
+    image: captain/opencode:2.1.2
     restart: unless-stopped
     # Nicht die ganze .env: opencode bekommt nur, was es braucht (kein
     # MM_BOT_TOKEN). Geheimnisse für MCP-Server (MCP_*) stehen in mcp.env.
