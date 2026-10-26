@@ -1,8 +1,8 @@
 // Egress-Filter fuer opencode – nur aktiv, wenn CAPTAIN_WEBFETCH_ALLOW gesetzt ist.
 //
-// opencode 2.0.20 prueft bei webfetch nur die URL, die das Modell angibt;
+// opencode (2.0.20–2.1.2) prueft bei webfetch nur die URL, die das Modell angibt;
 // Weiterleitungen folgt es selbst (fetch, redirect "follow") OHNE erneute
-// Pruefung (belegt: tests/test_webfetch_integration.py). Ein erlaubter Host
+// Pruefung (belegt: WebfetchIntegrationTest). Ein erlaubter Host
 // mit offener Weiterleitung waere sonst ein Tor zu jedem anderen Ziel.
 //
 // Deshalb laeuft der gesamte ausgehende Verkehr von opencode ueber diesen

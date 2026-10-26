@@ -4,8 +4,8 @@
 // schreibgeschuetzt (:ro) unter dem festen Pfad /shared ein (leer = das leere
 // Volume "shared-leer", Feature aus). Dieses Modul
 //
-//   - prueft den Host-Pfad (gleiche Regeln wie captain/shared.py, gemeinsame
-//     Testfaelle tests/data/shared_dir.json),
+//   - prueft den Host-Pfad (gleiche Regeln wie SharedDir.java, gemeinsame
+//     Testfaelle src/test/resources/data/shared_dir.json),
 //   - liefert die Policies (harte Obergrenze in OPENCODE_CONFIG_CONTENT):
 //     external_directory nur fuer /shared/* erlaubt, .git (jede Tiefe) und edit
 //     unter /shared verboten,
@@ -13,7 +13,7 @@
 //     keine Symlinks, keine Dateien mit mehreren harten Links, keine
 //     Geraete/FIFOs/Sockets und keine Captain-eigenen Verzeichnisse.
 //
-// Warum die Pruefung: opencode 2.0.20 loest Pfade nur lexikalisch auf
+// Warum die Pruefung: opencode (2.0.20–2.1.2) loest Pfade nur lexikalisch auf
 // (path.resolve, kein realpath, FileAccess.resolve im Binary) und folgt beim
 // Lesen Symlinks. Ein Symlink /shared/x -> /tmp/captain/<andere-session> waere
 // als "/shared/x/..." erlaubt und laese fremde Daten. Deshalb startet opencode
@@ -30,10 +30,10 @@ export const SCAN_INTERVAL_MS = 10_000;
 export const LIMIT_ENV = { entries: "CAPTAIN_SHARED_MAX_ENTRIES", seconds: "CAPTAIN_SHARED_MAX_SECONDS" };
 export const LIMIT_DEFAULTS = { entries: 100_000, seconds: 5 };
 
-// Wurzel und Systemverzeichnisse: nie als Ganzes freigeben (wie captain/shared.py)
+// Wurzel und Systemverzeichnisse: nie als Ganzes freigeben (wie SharedDir.java)
 export const SYSTEM_DIRS = new Set(["/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib32", "/lib64",
   "/media", "/mnt", "/opt", "/proc", "/root", "/run", "/sbin", "/srv", "/sys", "/tmp", "/usr", "/var"]);
-// Git-Innenleben in jeder Tiefe (wie captain/shared.py): ".git" und
+// Git-Innenleben in jeder Tiefe (wie SharedDir.java): ".git" und
 // Bare-/Mirror-Repos "x.git", alle Schreibweisen von "git" (CIFS ist
 // case-insensitive, die Muster nicht). "*" passt auch auf "/" und auf nichts.
 const GIT = ["g", "G"].flatMap((a) => ["i", "I"].flatMap((b) => ["t", "T"].map((c) => a + b + c)));
@@ -104,13 +104,14 @@ export function scanLimits(env = {}) {
 
 // Policies (Format "<aktion>:<ressource>"): die Sicherheitsbasis enthaelt
 // KEINE external_directory-Policy mehr (sie wuerde als frueheste Quelle jede
-// Freigabe schlagen); die Admin-Config darf "experimental" nicht setzen.
+// Freigabe schlagen); die Admin-Config darf weder "policies" noch
+// "experimental" setzen.
 // opencode prueft external_directory mit "<verzeichnis>/*" (bei Dateien das
 // Elternverzeichnis, Pfad lexikalisch aufgeloest) – "/shared/*" trifft also
 // /shared selbst und alles darunter, nicht /sharedX. Danach (gewinnt
 // innerhalb derselben Quelle) Git-Innenleben, Zugangsdaten und edit verboten.
 export function sharedPolicies(enabled) {
-  const rule = (resource, effect) => ({ action: "permission", resource, effect });
+  const rule = (resource, effect) => ({ action: "tool.use", resource, effect });
   if (!enabled) return [rule("external_directory:*", "deny")];
   return [
     rule("external_directory:*", "deny"),

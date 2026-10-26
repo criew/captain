@@ -3,7 +3,7 @@
 //
 // Die Admin-Config (/etc/captain/opencode.jsonc, im Betrieb vom Host
 // eingebunden) darf nur Provider, Modelle, Limits, Remote-MCP-Server und
-// Freigaben setzen. opencode 2.0.20 fuehrt u. a. "plugins", "agents",
+// Freigaben setzen. opencode (2.0.20–2.1.2) fuehrt u. a. "plugins", "agents",
 // "commands", "skills", "instructions", "references", "shell", "enterprise"
 // und lokale MCP-Server (type "local" = beliebiger Prozess als root) aus
 // JEDER Config-Quelle zusammen – die feste Basis kann sie dort nicht
@@ -24,7 +24,7 @@
 // kleine Umgebungs-Allowlist; die Sicherheitsschalter sind fest.
 //
 // webfetch: CAPTAIN_WEBFETCH_ALLOW (kommagetrennte URL-Praefixe, leer = aus)
-// wird hier zu experimental.policies in OPENCODE_CONFIG_CONTENT (harte
+// wird hier zu policies in OPENCODE_CONFIG_CONTENT (harte
 // Obergrenze, siehe webfetchPolicies) und – wenn gesetzt – zu einem
 // Egress-Filter (egress.mjs), weil opencode Weiterleitungen ungeprueft folgt.
 //
@@ -131,7 +131,7 @@ export function resolveEnv(value, env, warn = () => {}, path = "$") {
   return value;
 }
 
-// Nur diese Provider-Pakete (in opencode 2.0.20 eingebaut). Alles andere
+// Nur diese Provider-Pakete (in opencode 2.x eingebaut). Alles andere
 // wuerde opencode per import (file://) oder npm-Installation zur Laufzeit laden.
 export const PACKAGES = new Set([
   "@ai-sdk/openai-compatible",
@@ -250,8 +250,8 @@ export function enabledProviders(clean, env) {
 }
 
 // --- webfetch-Allowlist (CAPTAIN_WEBFETCH_ALLOW) ------------------------------
-// Gleiche Normalisierung wie captain/webfetch.py (gemeinsame Testfaelle:
-// tests/data/webfetch_allow.json). opencode 2.0.20 prueft bei webfetch die
+// Gleiche Normalisierung wie Webfetch.java (gemeinsame Testfaelle:
+// src/test/resources/data/webfetch_allow.json). opencode (2.0.20–2.1.2) prueft bei webfetch die
 // ROHE URL des Modells gegen Muster: "*" = beliebig viel (auch "/"),
 // "?" = genau ein beliebiges Zeichen, "\\" im Wert zaehlt als "/", Gross-/
 // Kleinschreibung zaehlt. Ein Eintrag wird deshalb zu "<praefix>" und
@@ -314,10 +314,10 @@ export const webfetchPatterns = (prefixes) => prefixes.flatMap((p) => [p, `${p}/
 // Policies (Format "<aktion>:<ressource>"): bei mehreren Treffern gewinnt die
 // LETZTE der fruehesten Quelle. Die Sicherheitsbasis enthaelt deshalb KEINE
 // webfetch-Policy (sie wuerde jede Freigabe hier schlagen); diese hier stehen
-// in OPENCODE_CONFIG_CONTENT, und die Admin-Config darf "experimental" nicht
-// setzen. Ohne Allowlist bleibt nur "webfetch:*" deny – wie bisher.
+// in OPENCODE_CONFIG_CONTENT, und die Admin-Config darf weder "policies" noch
+// "experimental" setzen. Ohne Allowlist bleibt nur "webfetch:*" deny – wie bisher.
 export function webfetchPolicies(prefixes) {
-  const rule = (resource, effect) => ({ action: "permission", resource: `webfetch:${resource}`, effect });
+  const rule = (resource, effect) => ({ action: "tool.use", resource: `webfetch:${resource}`, effect });
   if (!prefixes.length) return [rule("*", "deny")];
   return [rule("*", "deny"), ...webfetchPatterns(prefixes).map((p) => rule(p, "allow")), ...WEBFETCH_DENY.map((p) => rule(p, "deny"))];
 }
@@ -359,7 +359,7 @@ export function environment(env, enabled = [NO_PROVIDER], { webfetch = [], proxy
     OPENCODE_CONFIG_CONTENT: JSON.stringify({
       ...FIXED_CONFIG,
       enabled_providers: enabled,
-      experimental: { policies: [...webfetchPolicies(webfetch), ...sharedPolicies(shared)] },
+      policies: [...webfetchPolicies(webfetch), ...sharedPolicies(shared)],
     }),
   };
 }

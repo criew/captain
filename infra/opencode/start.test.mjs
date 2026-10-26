@@ -1,5 +1,5 @@
 // Unit-Tests fuer start.mjs: node --test infra/opencode/start.test.mjs
-// (laeuft auch ueber pytest: tests/test_start_script.py)
+// (laeuft auch ueber JUnit: StartScriptTest bzw. ./gradlew nodeTest)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
@@ -75,7 +75,7 @@ test("{file:…} – direkt oder ueber einen .env-Wert – wird verworfen", () =
 test("gesperrte Schluessel und lokale MCP-Server", () => {
   const cfg = {
     plugins: ["./x"], agents: { build: {} }, default_agent: "plan", commands: {}, skills: [], instructions: [],
-    references: {}, shell: "/bin/sh", enterprise: {}, experimental: { policies: [] }, worktree: {}, tool_output: {},
+    references: {}, shell: "/bin/sh", enterprise: {}, experimental: { policies: [] }, policies: [], worktree: {}, tool_output: {},
     mcp: { servers: {
       l: { type: "local", command: ["sh"] },
       e: { type: "{env:X}", url: "https://x" },
@@ -86,7 +86,7 @@ test("gesperrte Schluessel und lokale MCP-Server", () => {
   const clean = sanitize(cfg, (w) => warnings.push(w));
   assert.deepEqual(Object.keys(clean), ["mcp"]);
   assert.deepEqual(clean.mcp.servers, { r: { type: "remote", url: "https://x", oauth: false, codemode: false } });
-  for (const k of ["plugins", "agents", "default_agent", "commands", "skills", "instructions", "references", "shell", "enterprise", "experimental"]) {
+  for (const k of ["plugins", "agents", "default_agent", "commands", "skills", "instructions", "references", "shell", "enterprise", "experimental", "policies"]) {
     assert.ok(warnings.some((w) => w.includes(`"${k}"`)), k);
   }
 });

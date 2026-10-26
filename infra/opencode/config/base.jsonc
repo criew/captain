@@ -8,8 +8,8 @@
 // Editierbar (Provider, Modelle, Limits, MCP-Server und deren Freigaben) ist
 // die Admin-Config /etc/captain/opencode.jsonc; start.mjs uebernimmt davon nur
 // eine Allowlist und gibt opencode die bereinigte Kopie (OPENCODE_CONFIG). So fuehrt
-// opencode 2.0.20 die Quellen zusammen (aus dem Binary ermittelt, per
-// tests/test_config_layers_integration.py belegt):
+// opencode die Quellen zusammen (an 2.0.20 aus dem Binary ermittelt, fuer 2.1.2
+// per ConfigLayersIntegrationTest belegt):
 //
 //   Reihenfolge: global (diese Datei) -> OPENCODE_CONFIG (Admin) -> Projekt
 //   (abgeschaltet) -> OPENCODE_CONFIG_CONTENT (Image-ENV, feste Schalter).
@@ -18,7 +18,8 @@
 //   danach kommen die Session-Regeln; die LETZTE passende Regel gewinnt. Das
 //   "* * deny" hier ist also die Grundlage, die Admin-Config darf gezielt
 //   freigeben (z. B. MCP-Tools).
-// - "experimental.policies" aller Quellen werden gesammelt, wobei bei gleichem
+// - "policies" aller Quellen werden gesammelt (seit 2.1 stabil auf oberster
+//   Ebene; "experimental.policies" liest opencode weiter mit), wobei bei gleichem
 //   Treffer die Policy der FRUEHESTEN Quelle gewinnt. Die Policies hier sind
 //   damit eine harte Obergrenze, die weder die Admin-Config noch
 //   Session-Regeln aufheben koennen ("Blocked by configuration policy").
@@ -26,7 +27,7 @@
 //   OPENCODE_CONFIG_CONTENT ("webfetch:*" deny, bei gesetztem
 //   CAPTAIN_WEBFETCH_ALLOW danach die erlaubten URL-Praefixe). Eine
 //   webfetch-Policy hier wuerde jede dieser Freigaben schlagen; die
-//   Admin-Config darf "experimental" nicht setzen. Ebenso external_directory
+//   Admin-Config darf "policies"/"experimental" nicht setzen. Ebenso external_directory
 //   (fremde Verzeichnisse): "external_directory:*" deny setzt start.mjs immer,
 //   bei gesetztem CAPTAIN_SHARED_DIR danach nur "/shared/*" erlaubt.
 // - Einzelwerte (share, snapshots, websearch, ...) nimmt opencode aus der
@@ -40,7 +41,7 @@
   // gilt "ask" (wuerde headless haengen). Deshalb zuerst alles verbieten. Eine
   // Aktion, deren letzte passende Regel "resource: *, deny" ist, bietet
   // opencode dem Modell gar nicht erst als Tool an.
-  // Aktionen in v2.0.20: read, edit (edit/write/apply_patch), glob, grep,
+  // Aktionen (2.0.20/2.1.2): read, edit (edit/write/apply_patch), glob, grep,
   // shell, webfetch, websearch, subagent, skill, question, external_directory,
   // execute (Code Mode), opencode_list_mcp_resources,
   // opencode_read_mcp_resource und MCP-Tools als <server>_<tool>.
@@ -56,20 +57,18 @@
     { "action": "*", "resource": "*", "effect": "deny" }
   ],
 
-  "experimental": {
-    // Harte Obergrenze (Policy-Hook nach den Regeln). Format "<aktion>:<ressource>".
-    // webfetch und external_directory fehlen bewusst: start.mjs setzt dafuer
-    // Policies (siehe oben), sonst liesse sich nichts gezielt freigeben.
-    "policies": [
-      { "action": "permission", "resource": "shell:*", "effect": "deny" },
-      { "action": "permission", "resource": "websearch:*", "effect": "deny" },
-      { "action": "permission", "resource": "subagent:*", "effect": "deny" },
-      { "action": "permission", "resource": "skill:*", "effect": "deny" },
-      { "action": "permission", "resource": "question:*", "effect": "deny" },
-      // MCP-Ressourcen (opencode_list/read_mcp_resource). MCP-Tools heissen
-      // <server>_<tool> und fallen nicht darunter – ausser ein Server hiesse
-      // "opencode…" (dann waeren seine Tools hier gesperrt).
-      { "action": "permission", "resource": "opencode_*", "effect": "deny" }
-    ]
-  }
+  // Harte Obergrenze (Policy-Hook nach den Regeln). Format "<aktion>:<ressource>".
+  // webfetch und external_directory fehlen bewusst: start.mjs setzt dafuer
+  // Policies (siehe oben), sonst liesse sich nichts gezielt freigeben.
+  "policies": [
+    { "action": "tool.use", "resource": "shell:*", "effect": "deny" },
+    { "action": "tool.use", "resource": "websearch:*", "effect": "deny" },
+    { "action": "tool.use", "resource": "subagent:*", "effect": "deny" },
+    { "action": "tool.use", "resource": "skill:*", "effect": "deny" },
+    { "action": "tool.use", "resource": "question:*", "effect": "deny" },
+    // MCP-Ressourcen (opencode_list/read_mcp_resource). MCP-Tools heissen
+    // <server>_<tool> und fallen nicht darunter – ausser ein Server hiesse
+    // "opencode…" (dann waeren seine Tools hier gesperrt).
+    { "action": "tool.use", "resource": "opencode_*", "effect": "deny" }
+  ]
 }

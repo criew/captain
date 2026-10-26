@@ -1,8 +1,15 @@
+# Gradle / Java
+.gradle/
+build/
+out/
+*.class
+.idea/
+*.iml
+
+# Python-Werkzeuge (seed.py, verify.py, e2e.py)
 __pycache__/
 *.py[cod]
-*.egg-info/
 .venv/
-.pytest_cache/
 
 # Lokale Konfiguration mit Geheimnissen
 config.json
@@ -17,3 +24,4 @@ generated.env
 *.bak
 *.bak_*
 *.log
+*.egg-info/

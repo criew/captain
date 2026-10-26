@@ -1,5 +1,5 @@
 *
-!pyproject.toml
-!README.md
-!captain/
-**/__pycache__
+!settings.gradle.kts
+!build.gradle.kts
+!src/main/
+!docker/

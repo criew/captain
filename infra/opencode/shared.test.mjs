@@ -1,7 +1,6 @@
 // Unit-Tests fuer das geteilte Verzeichnis (shared.mjs, start.mjs):
-// node --test infra/opencode/shared.test.mjs (laeuft auch ueber pytest:
-// tests/test_start_script.py). Verhalten gegen echtes opencode:
-// tests/test_shared_integration.py.
+// node --test infra/opencode/shared.test.mjs (laeuft auch ueber JUnit: StartScriptTest
+// bzw. ./gradlew nodeTest). Verhalten gegen echtes opencode: SharedIntegrationTest.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -11,10 +10,10 @@ import { test } from "node:test";
 import { checkHome, checkMount, GIT_PATTERNS, normalizeSharedDir, scan, scanLimits, SHARED_MOUNT, sharedPolicies } from "./shared.mjs";
 import { environment, parseJsonc } from "./start.mjs";
 
-const CASES = JSON.parse(fs.readFileSync(new URL("../../tests/data/shared_dir.json", import.meta.url), "utf8"));
+const CASES = JSON.parse(fs.readFileSync(new URL("../../src/test/resources/data/shared_dir.json", import.meta.url), "utf8"));
 const BASE = parseJsonc(fs.readFileSync(new URL("./config/base.jsonc", import.meta.url), "utf8"));
 
-// Nachbau des Matchers von opencode 2.0.20 (wie webfetch.test.mjs)
+// Nachbau des Matchers von opencode (an 2.0.20 ermittelt) (wie webfetch.test.mjs)
 function wildcard(value, pattern) {
   const v = value.replaceAll("\\", "/");
   let rx = pattern.replaceAll("\\", "/").replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
@@ -23,19 +22,19 @@ function wildcard(value, pattern) {
 }
 // Policies: frueheste Quelle gewinnt, darin die letzte passende
 function blocked(sources, action, resource) {
-  const list = [...sources].reverse().flatMap((s) => s.experimental?.policies ?? []);
-  const hit = list.findLast((p) => p.action === "permission" && wildcard(`${action}:${resource}`, p.resource));
+  const list = [...sources].reverse().flatMap((s) => [...(s.experimental?.policies ?? []), ...(s.policies ?? [])]);
+  const hit = list.findLast((p) => p.action === "tool.use" && wildcard(`${action}:${resource}`, p.resource));
   return hit?.effect === "deny";
 }
 const content = (env) => JSON.parse(env.OPENCODE_CONFIG_CONTENT);
 
-test("Pfadpruefung: gemeinsame Testfaelle (wie captain/shared.py)", () => {
+test("Pfadpruefung: gemeinsame Testfaelle (wie SharedDir.java)", () => {
   for (const c of CASES.valid) assert.equal(normalizeSharedDir(c.input), c.path, c.input);
   for (const v of CASES.invalid) assert.throws(() => normalizeSharedDir(v), /CAPTAIN_SHARED_DIR/, JSON.stringify(v));
   assert.equal(normalizeSharedDir(undefined), null);
 });
 
-test("CAPTAIN_HOME: nur <home>/shared[/…] (gemeinsame Testfaelle wie captain/shared.py)", () => {
+test("CAPTAIN_HOME: nur <home>/shared[/…] (gemeinsame Testfaelle wie SharedDir.java)", () => {
   for (const c of CASES.home) {
     const label = `${c.home}|${c.path}`;
     if (c.ok) assert.equal(normalizeSharedDir(c.path, c.home), c.path.replace(/\/+$/, ""), label);
@@ -79,7 +78,7 @@ test("Policies: external_directory nur fuer /shared/*, .git und edit gesperrt", 
 });
 
 test("Policies ohne Variable: external_directory komplett gesperrt", () => {
-  assert.deepEqual(sharedPolicies(false), [{ action: "permission", resource: "external_directory:*", effect: "deny" }]);
+  assert.deepEqual(sharedPolicies(false), [{ action: "tool.use", resource: "external_directory:*", effect: "deny" }]);
   const off = [BASE, {}, content(environment({}, ["llm"]))];
   for (const r of ["/shared/*", "/tmp/captain/*", "/etc/*"]) assert.ok(blocked(off, "external_directory", r), r);
   assert.equal(blocked(off, "edit", "/shared/a.txt"), false); // ohne Freigabe kommt edit gar nicht so weit
@@ -89,7 +88,7 @@ test("Umgebung: CAPTAIN_SHARED_DIR/CAPTAIN_HOME gehen nicht an opencode", () => 
   const env = environment({ PATH: "/bin", CAPTAIN_SHARED_DIR: "/srv/captain-shared", CAPTAIN_HOME: "/opt/captain" }, ["llm"], { shared: true });
   assert.equal(env.CAPTAIN_SHARED_DIR, undefined);
   assert.equal(env.CAPTAIN_HOME, undefined);
-  assert.deepEqual(content(env).experimental.policies.slice(-sharedPolicies(true).length), sharedPolicies(true));
+  assert.deepEqual(content(env).policies.slice(-sharedPolicies(true).length), sharedPolicies(true));
 });
 
 function tmpdir() {

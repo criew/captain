@@ -25,7 +25,7 @@ RUN set -e; \
 FROM node:22-bookworm-slim
 
 # Version fest pinnen (siehe README.md, Abschnitt "Version").
-ARG OPENCODE_VERSION=2.0.20
+ARG OPENCODE_VERSION=2.1.2
 
 COPY --from=ripgrep /rg /usr/local/bin/rg
 
@@ -33,13 +33,13 @@ RUN npm install -g --no-fund --no-audit "@opencode/cli@${OPENCODE_VERSION}" \
  && opencode --version
 
 # --- Sicherheitsbasis (fest im Image) ---------------------------------------
-# Globale Config: "* * deny" + experimental.policies (harte Obergrenze).
+# Globale Config: "* * deny" + policies (harte Obergrenze).
 COPY config/base.jsonc /root/.config/opencode/opencode.jsonc
 
 # Keine Projekt-Config aus dem Session-Verzeichnis (und darueber): sonst laedt
 # opencode dort opencode.json(c), .opencode/ (inkl. plugins/*.ts als JS im
 # Server!), .claude/, .agents/ und AGENTS.md – das Modell darf dort schreiben.
-# 2.0.20 liest OPENCODE_CONFIG_PROJECT_DISABLE ?? OPENCODE_DISABLE_PROJECT_CONFIG.
+# opencode (2.0.20–2.1.2) liest OPENCODE_CONFIG_PROJECT_DISABLE ?? OPENCODE_DISABLE_PROJECT_CONFIG.
 ENV OPENCODE_DISABLE_PROJECT_CONFIG=1
 
 # Start ueber start.mjs: bereinigt die Admin-Config per Allowlist (keine
