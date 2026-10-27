@@ -10,6 +10,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -98,8 +100,14 @@ class FakeMattermost implements MattermostApi {
         typings.incrementAndGet();
     }
 
+    final AtomicInteger userCalls = new AtomicInteger();
+    /** Gesetzt: Download meldet den Start und wartet dann (Abbruch während des Ladens). */
+    volatile CountDownLatch downloadStarted;
+    volatile CountDownLatch downloadGate;
+
     @Override
     public JsonNode getUser(String userId) {
+        userCalls.incrementAndGet();
         JsonNode user = USERS.get(userId);
         if (user == null) {
             throw new IllegalArgumentException("unbekannter Nutzer " + userId);
@@ -150,6 +158,15 @@ class FakeMattermost implements MattermostApi {
     @Override
     public String downloadFile(String fileId, String destDir, Long maxBytes) {
         this.maxBytes = maxBytes;
+        CountDownLatch gate = downloadGate;
+        if (gate != null) {
+            downloadStarted.countDown();
+            try {
+                gate.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
         if (fileId.startsWith("big")) {
             throw new AttachmentTooLargeException(fileId + ".pdf", 30L * 1024 * 1024, maxBytes);
         }

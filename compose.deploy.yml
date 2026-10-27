@@ -31,8 +31,10 @@ x-proxy-env: &proxy-env
   no_proxy: opencode,captain,localhost,127.0.0.1,host.docker.internal${CAPTAIN_NO_PROXY:+,${CAPTAIN_NO_PROXY}}
 
 services:
-  # Legt CAPTAIN_HOME an und kopiert fehlende Config-Vorlagen nach config/
-  # (vorhandene Dateien bleiben unangetastet). Läuft bei jedem Start kurz.
+  # Legt CAPTAIN_HOME an, kopiert fehlende Config-Vorlagen nach config/
+  # (vorhandene Dateien bleiben unangetastet) und uebergibt alles an
+  # CAPTAIN_UID:CAPTAIN_GID – so kommt der Host-Nutzer ohne sudo an seine
+  # Dateien. Laeuft bei jedem Start kurz (als einziger Container als root).
   init:
     build:
       context: infra/opencode
@@ -40,23 +42,28 @@ services:
       # npm/pip/curl (sonst z. B. „Cannot connect to proxy … name resolution“)
       network: host
       args:
-        OPENCODE_VERSION: "2.1.2"
-    image: captain/opencode:2.1.2
+        OPENCODE_VERSION: "2.2.0"
+    image: captain/opencode:2.2.0
+    user: "0:0"
+    environment:
+      CAPTAIN_UID: ${CAPTAIN_UID:-1000}
+      CAPTAIN_GID: ${CAPTAIN_GID:-1000}
     entrypoint:
       - sh
       - -c
       - |
         set -e
-        mkdir -p /home/captain/config /home/captain/data /home/captain/sessions /home/captain/opencode /home/captain/shared
-        chmod 700 /home/captain /home/captain/config /home/captain/data /home/captain/sessions /home/captain/opencode
-        # Empfohlener Ort für CAPTAIN_SHARED_DIR (leer, nicht freigegeben,
-        # solange die Variable leer ist)
-        chmod 755 /home/captain/shared
+        h=/captain-home
+        mkdir -p $$h/config $$h/data $$h/sessions $$h/opencode $$h/shared
         for f in /opt/captain/defaults/*; do
-          [ -e "/home/captain/config/$${f##*/}" ] || cp "$$f" /home/captain/config/
+          [ -e "$$h/config/$${f##*/}" ] || cp "$$f" $$h/config/
         done
+        chown -R "$$CAPTAIN_UID:$$CAPTAIN_GID" $$h/config $$h/data $$h/sessions $$h/opencode
+        chown "$$CAPTAIN_UID:$$CAPTAIN_GID" $$h $$h/shared
+        chmod 700 $$h/config $$h/data $$h/sessions $$h/opencode
+        chmod 755 $$h $$h/shared
     volumes:
-      - ${CAPTAIN_HOME:-/opt/captain}:/home/captain
+      - ${CAPTAIN_HOME:-/opt/captain}:/captain-home
     restart: "no"
 
   opencode:
@@ -64,14 +71,14 @@ services:
       context: infra/opencode
       network: host
       args:
-        OPENCODE_VERSION: "2.1.2"
-    image: captain/opencode:2.1.2
+        OPENCODE_VERSION: "2.2.0"
+    image: captain/opencode:2.2.0
     restart: unless-stopped
+    user: "${CAPTAIN_UID:-1000}:${CAPTAIN_GID:-1000}"
     # Nicht die ganze .env: opencode bekommt nur, was es braucht (kein
     # MM_BOT_TOKEN). Geheimnisse für MCP-Server (MCP_*) stehen in mcp.env.
     # Das Startskript (infra/opencode/start.mjs) setzt {env:…} der
-    # Admin-Config selbst ein (nur LLM_*, OLLAMA_*, MCP_*, *_API_KEY,
-    # OPENCODE_MODEL/VARIANT), reicht opencode nur eine kleine Allowlist weiter
+    # Admin-Config selbst ein (nur LLM_*, MCP_*, OPENCODE_MODEL/VARIANT), reicht opencode nur eine kleine Allowlist weiter
     # und setzt die Sicherheitsschalter (OPENCODE_CONFIG, OPENCODE_CONFIG_CONTENT,
     # Projekt-Config aus) fest.
     env_file:
@@ -89,10 +96,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_CONTEXT: ${LLM_CONTEXT:-32768}
+      LLM_OUTPUT: ${LLM_OUTPUT:-4096}
       # webfetch-Allowlist (README: „webfetch für bestimmte URLs erlauben“).
       # start.mjs macht daraus Policies und einen Egress-Filter; opencode
       # selbst bekommt die Variable nicht. Leer = webfetch aus.
@@ -116,7 +121,7 @@ services:
       # Admin-Config (Provider, Modelle, MCP, AGENTS.md) – nur lesbar
       - ${CAPTAIN_HOME:-/opt/captain}/config:/etc/captain:ro
       - ${CAPTAIN_HOME:-/opt/captain}/sessions:/tmp/captain
-      - ${CAPTAIN_HOME:-/opt/captain}/opencode:/root/.local/share/opencode
+      - ${CAPTAIN_HOME:-/opt/captain}/opencode:/home/captain/.local/share/opencode
       # Geteiltes Verzeichnis, immer schreibgeschützt unter dem festen Pfad
       # /shared. Ohne CAPTAIN_SHARED_DIR hängt dort das leere Volume
       # "shared-leer" (kein Host-Verzeichnis) – und es gibt nichts frei.
@@ -131,6 +136,8 @@ services:
       network: host
     image: captain/bot:latest
     restart: unless-stopped
+    # gleiche UID wie opencode: beide schreiben in die Session-Verzeichnisse
+    user: "${CAPTAIN_UID:-1000}:${CAPTAIN_GID:-1000}"
     # Zeit zum geordneten Beenden (laufende Antworten, Nachhol-Cursor sichern)
     stop_grace_period: 20s
     env_file:
@@ -151,6 +158,10 @@ services:
       CAPTAIN_HOME: ${CAPTAIN_HOME:-/opt/captain}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # REST-Eingabekanal (nur mit CAPTAIN_API_TOKEN aktiv). Default nur lokal;
+    # für n8n auf einem anderen Rechner z. B. CAPTAIN_API_PUBLISH=0.0.0.0:8090.
+    ports:
+      - "${CAPTAIN_API_PUBLISH:-127.0.0.1:8090}:8090"
     volumes:
       - ${CAPTAIN_HOME:-/opt/captain}/data:/data
       # gleicher Pfad wie im opencode-Container

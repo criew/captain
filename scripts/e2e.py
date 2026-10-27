@@ -594,7 +594,7 @@ def main() -> int:
     ap.add_argument("--max-mb", type=int, default=20,
                     help="MAX_ATTACHMENT_MB des Bots (für --attachments)")
     ap.add_argument("--vision-model", default="",
-                    help="Bild zusätzlich mit diesem Modell prüfen (z. B. ollama/gemma3:4b)")
+                    help="Bild zusätzlich mit diesem Modell prüfen (z. B. llm/vision-modell)")
     args = ap.parse_args()
     env = read_env(args.env)
     if not env.get("MM_BOT_TOKEN"):

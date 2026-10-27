@@ -8,7 +8,7 @@
 // Projekt-Config; Session-Regeln des Bots) steckt fest im Image bzw. im Bot
 // und kann von hier aus nicht gelockert werden. Geheimnisse nie hier
 // eintragen, sondern in die .env bzw. mcp.env und per {env:NAME} einsetzen
-// (nur LLM_*, OLLAMA_*, MCP_*, *_API_KEY, OPENCODE_MODEL/VARIANT).
+// (nur LLM_*, MCP_*, OPENCODE_MODEL/VARIANT).
 //
 // Erlaubt sind NUR: model, providers (eingebaute Pakete), mcp (nur
 // "type": "remote"), permissions (allow/deny), compaction – je Block mit
@@ -27,7 +27,7 @@
   "providers": {
     // Generischer OpenAI-kompatibler Chat-Endpunkt mit Bearer-Token:
     // vLLM (LLM_BASE_URL=https://host/v1), Open WebUI
-    // (LLM_BASE_URL=https://host/api) oder Ollama (http://host:11434/v1).
+    // (LLM_BASE_URL=https://host/api).
     "llm": {
       "name": "LLM",
       "package": "@ai-sdk/openai-compatible",
@@ -35,16 +35,17 @@
         "baseURL": "{env:LLM_BASE_URL}",
         "apiKey": "{env:LLM_API_KEY}"
       },
-      // Modelle des Servers. Der Schluessel ist der Modellname beim Server;
-      // limit.context an die tatsaechliche Kontextlaenge des Servers anpassen
-      // (vLLM: --max-model-len), damit opencode rechtzeitig kompaktiert.
+      // Modell des Servers (Schluessel = Modellname beim Server). Kontextlaenge
+      // und maximale Ausgabe aus der .env (LLM_CONTEXT, LLM_OUTPUT; vLLM:
+      // --max-model-len), damit opencode rechtzeitig kompaktiert.
       "models": {
         "{env:LLM_MODEL}": {
           "name": "{env:LLM_MODEL}",
-          "limit": { "context": 32768, "output": 4096 }
+          "limit": { "context": "{env:LLM_CONTEXT}", "output": "{env:LLM_OUTPUT}" }
         }
-        // Weitere Modelle desselben Servers, z. B.:
-        // "qwen3-32b": { "name": "Qwen3 32B", "limit": { "context": 32768, "output": 8192 } }
+        // Nur wenn derselbe Server weitere Modelle anbietet, die per !modell
+        // waehlbar sein sollen, z. B.:
+        // "zweites-modell": { "name": "Zweites Modell", "limit": { "context": 32768, "output": 8192 } }
       }
     }
   },

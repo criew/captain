@@ -2,7 +2,7 @@
 
 opencode läuft headless als dauerhafter Server im Container `opencode` (Port `4096`)
 und wird über das Root-`compose.yml` (`include:`) eingebunden. Dasselbe Image
-nutzt der Betrieb (`compose.deploy.yml`, Tag `captain/opencode:2.1.2`, ohne
+nutzt der Betrieb (`compose.deploy.yml`, Tag `captain/opencode:2.2.0`, ohne
 Host-Port; siehe Haupt-README).
 
 ## Schnellstart
@@ -18,7 +18,7 @@ Healthcheck: `GET /api/info` mit Basic-Auth; `docker compose ps` zeigt `healthy`
 
 ## Version
 
-**opencode v2, npm `@opencode/cli@2.1.2`** (fest gepinnt in `Dockerfile` und
+**opencode v2, npm `@opencode/cli@2.2.0`** (fest gepinnt in `Dockerfile` und
 `compose.yml`, Build-Arg `OPENCODE_VERSION`). Update-Prüfung ist per Config
 abgeschaltet (`"update": "disable"`).
 
@@ -26,7 +26,7 @@ Begründung: v2 läuft headless im Server-Modus sauber (`opencode serve`), bring
 versionierte REST-API unter `/api/*` mit OpenAPI-Spec, ein typisiertes SSE-Event-Modell
 mit Text-Deltas sowie automatische Ollama-Discovery. Alle Akzeptanztests (Session,
 Prompt, SSE, Tools, Permissions, Interrupt) liefen gegen 2.0.20 und nach dem
-Update gegen 2.1.2 erfolgreich. v1 (`opencode-ai` 1.x, GitHub-Releases `v1.*`)
+Update gegen 2.2.0 erfolgreich. v1 (`opencode-ai` 1.x, GitHub-Releases `v1.*`)
 wird nicht benötigt.
 
 **Update auf eine neue Version:** `OPENCODE_VERSION` in `Dockerfile`,
@@ -34,7 +34,7 @@ wird nicht benötigt.
 den Test-Default `CAPTAIN_OC_IMAGE` (`Integration.java`) anheben, Image bauen,
 dann **alle** Integrationstests (`./gradlew integrationTest`) und
 `scripts/e2e.py` (alle drei Modi) laufen lassen – die Sicherheitsbasis beruht
-auf Verhalten, das nur diese Tests belegen. 2.0.20 → 2.1.2: `policies` sind
+auf Verhalten, das nur diese Tests belegen. 2.0.20 → 2.2.0: `policies` sind
 jetzt stabil auf oberster Ebene (`experimental.policies` wird weiter gelesen
 und zusammengeführt); Captain nutzt die neue Form. **Achtung:** Die
 Policy-Aktion heißt seit 2.1 `tool.use` statt `permission` (#53775). Policies
@@ -68,7 +68,7 @@ Die Sicherheitsbasis ist ins Image kopiert (Änderung → `up -d --build`); die
 Admin-Config und `AGENTS.md` unter `/etc/captain` bindet der Betrieb aus
 `$CAPTAIN_HOME/config` ein (Änderung → `restart opencode`).
 
-## Config-Quellen (an 2.0.20 aus dem Binary ermittelt, mit 2.1.2 durch die Integrationstests bestätigt)
+## Config-Quellen (an 2.0.20 aus dem Binary ermittelt, mit 2.2.0 durch die Integrationstests bestätigt)
 
 opencode lädt nacheinander: global (`/root/.config/opencode/opencode.jsonc`) →
 `OPENCODE_CONFIG` (bereinigte Kopie) → Projekt-Config (hier abgeschaltet) →
@@ -178,7 +178,7 @@ Kein API-Key nötig.
 Ziel: **keine Tools außer Dateizugriff im eigenen Session-Verzeichnis**
 `/tmp/captain/<session-id>`, und nichts darf an einer Rückfrage (`ask`) hängen.
 
-### Auswertung (an 2.0.20 aus dem Binary ermittelt, mit 2.1.2 durch die Integrationstests bestätigt)
+### Auswertung (an 2.0.20 aus dem Binary ermittelt, mit 2.2.0 durch die Integrationstests bestätigt)
 
 - Regeln: `{action, resource, effect}` mit `effect` ∈ `allow|deny|ask`; `*` im
   Muster passt auf alles inkl. `/`.
@@ -352,7 +352,7 @@ zwar auf, das Plugin läuft aber schon), `AGENTS.md` landet im Systemprompt.
 
 Schutz:
 
-1. `OPENCODE_DISABLE_PROJECT_CONFIG=1` im Image (2.0.20 und 2.1.2 werten
+1. `OPENCODE_DISABLE_PROJECT_CONFIG=1` im Image (2.0.20 und 2.2.0 werten
    `OPENCODE_CONFIG_PROJECT_DISABLE ?? OPENCODE_DISABLE_PROJECT_CONFIG` aus).
    Damit lädt opencode aus dem Projektverzeichnis weder Config noch Plugins noch
    `.claude`/`.agents`/`AGENTS.md` (getestet: Plugin-Marker bleibt aus, keine
@@ -404,7 +404,7 @@ Automatisiert: `RestrictIntegrationTest` (`./gradlew integrationTest`).
 Systemprompt (nach `AGENTS.md`), dauerhaft pro Session – übersteht also auch
 Kompaktierung. Der Bot setzt `captain-persona` und `captain-umgebung`.
 
-## API (v2.1.2)
+## API (v2.2.0)
 
 Basis `http://localhost:4096` (im Compose-Netz `http://opencode:4096`), alle Pfade mit
 Basic-Auth. Antworten sind in `{"data": ...}` gekapselt. Vollständig: `openapi.json`
@@ -412,7 +412,7 @@ Basic-Auth. Antworten sind in `{"data": ...}` gekapselt. Vollständig: `openapi.
 
 | Zweck | Methode + Pfad | Body / Hinweise |
 |---|---|---|
-| Server-Info / Health | `GET /api/info` | `{"version":"2.1.2",...}` |
+| Server-Info / Health | `GET /api/info` | `{"version":"2.2.0",...}` |
 | Session anlegen | `POST /api/session` | `{"id":"ses_…","title":"…","location":{"directory":"/tmp/captain/x"},"permissions":[…],"model":{"providerID":"…","id":"…"}}` (alles optional; `id` muss mit `ses` beginnen) → `data.id` (`ses_…`) |
 | Session lesen/löschen | `GET` / `DELETE /api/session/{id}` | |
 | Prompt senden | `POST /api/session/{id}/prompt` | `{"text":"…","delivery":"steer"\|"queue"}` → kehrt sofort zurück (`data.type:"user"`), Ausführung asynchron |

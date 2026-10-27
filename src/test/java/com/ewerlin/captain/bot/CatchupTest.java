@@ -54,6 +54,7 @@ class CatchupTest {
     @AfterEach
     void tearDown() {
         bots.forEach(Bot::stop);
+        bots.forEach(b -> b.awaitStopped(5)); // nichts schreibt mehr, während @TempDir aufräumt
     }
 
     static JsonNode read(Path path) {

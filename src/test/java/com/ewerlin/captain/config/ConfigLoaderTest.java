@@ -49,7 +49,7 @@ class ConfigLoaderTest {
         assertThat(cfg.sessionsDir()).isEqualTo("/tmp/captain");
         assertThat(cfg.systemPrompt()).isEqualTo(ConfigLoader.DEFAULT_SYSTEM_PROMPT);
         assertThat(cfg.dataDir()).isEqualTo("data");
-        assertThat(cfg.allowedUsers()).isEmpty();
+        assertThat(cfg.apiToken()).isNull();
         assertThat(cfg.historyMaxPosts()).isEqualTo(50);
         assertThat(cfg.historyMaxChars()).isEqualTo(8000);
     }
@@ -84,14 +84,13 @@ class ConfigLoaderTest {
     @Test
     void jsonFileAndEnvOverride() throws IOException {
         Path path = write("captain.json", "{\"MM_URL\": \"http://localhost:8065/\", \"MM_BOT_TOKEN\": \"tok\", "
-                + "\"OPENCODE_URL\": \"http://localhost:4096\", \"OPENCODE_MODEL\": \"anthropic/x\", "
-                + "\"SESSIONS_DIR\": \"/ws/\", \"ALLOWED_USERS\": [\"Alice\", \"@bob\"]}");
+                + "\"OPENCODE_URL\": \"http://localhost:4096\", \"OPENCODE_MODEL\": \"llm/x\", "
+                + "\"SESSIONS_DIR\": \"/ws/\"}");
         CaptainConfig cfg = ConfigLoader.load(Map.of("CAPTAIN_CONFIG", path.toString(),
-                "OPENCODE_MODEL", "openai/y", "MM_BOT_TOKEN", "")::get);
-        assertThat(cfg.opencodeModel()).isEqualTo("openai/y"); // Umgebung gewinnt
+                "OPENCODE_MODEL", "llm/y", "MM_BOT_TOKEN", "")::get);
+        assertThat(cfg.opencodeModel()).isEqualTo("llm/y"); // Umgebung gewinnt
         assertThat(cfg.mmBotToken()).isEqualTo("tok"); // leere Umgebung überschreibt nicht
         assertThat(cfg.sessionsDir()).isEqualTo("/ws");
-        assertThat(cfg.allowedUsers()).containsExactlyInAnyOrder("alice", "bob");
     }
 
     @Test
@@ -102,16 +101,21 @@ class ConfigLoaderTest {
     }
 
     @Test
-    void allowedUsersFromEnv() {
-        CaptainConfig cfg = load(Map.of("ALLOWED_USERS", " alice, Bob ,,"));
-        assertThat(cfg.allowedUsers()).containsExactlyInAnyOrder("alice", "bob");
-        assertThat(cfg.isAllowed("ALICE")).isTrue();
-        assertThat(cfg.isAllowed("carol")).isFalse();
+    void apiToken() {
+        assertThat(load(Map.of("CAPTAIN_API_TOKEN", " " + "a".repeat(32) + " ")).apiToken()).isEqualTo("a".repeat(32));
+        assertThat(load(Map.of("CAPTAIN_API_TOKEN", "")).apiToken()).isNull();
+        assertThatThrownBy(() -> load(Map.of("CAPTAIN_API_TOKEN", "kurz")))
+                .isInstanceOf(ConfigException.class).hasMessageContaining("CAPTAIN_API_TOKEN");
+        assertThatThrownBy(() -> load(Map.of("CAPTAIN_API_TOKEN", "a".repeat(20) + " " + "b".repeat(20))))
+                .isInstanceOf(ConfigException.class);
     }
 
     @Test
-    void emptyAllowedUsersAllowsEveryone() {
-        assertThat(load(Map.of()).isAllowed("anyone")).isTrue();
+    void allowedUsersIsGone() throws IOException {
+        Path path = write("c.json", "{\"MM_URL\": \"http://x\", \"MM_BOT_TOKEN\": \"t\", \"OPENCODE_URL\": \"http://y\", "
+                + "\"ALLOWED_USERS\": [\"alice\"]}");
+        assertThatThrownBy(() -> load(path.toString(), Map.of())).hasMessageContaining("Unbekannte Schlüssel")
+                .hasMessageContaining("ALLOWED_USERS");
     }
 
     @ParameterizedTest

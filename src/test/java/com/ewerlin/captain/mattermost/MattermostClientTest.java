@@ -80,6 +80,13 @@ class MattermostClientTest {
                 json(ex, 200, Map.of("id", "liar", "name", "x.bin"));
             } else if (path.equals("/files/liar")) {
                 FakeHttpServer.send(ex, 200, "x".repeat(5000).getBytes(), "application/octet-stream", Map.of());
+            } else if (path.equals("/files/cut/info")) {
+                json(ex, 200, Map.of("id", "cut", "name", "halb.bin"));
+            } else if (path.equals("/files/cut")) { // Verbindung bricht mitten im Download ab
+                ex.sendResponseHeaders(200, 5000);
+                ex.getResponseBody().write("x".repeat(100).getBytes());
+                ex.getResponseBody().flush();
+                ex.close();
             } else if (path.equals("/files") && req.method().equals("POST")) {
                 json(ex, 201, Map.of("file_infos", List.of(Map.of("id", "up1"))));
             } else {
@@ -259,6 +266,15 @@ class MattermostClientTest {
     void downloadFileTooLargeWhileStreaming() throws IOException {
         assertThatThrownBy(() -> client.downloadFile("liar", tmp.resolve("dl").toString(), 4096L))
                 .isInstanceOf(AttachmentTooLargeException.class);
+        try (Stream<Path> files = Files.list(tmp.resolve("dl"))) {
+            assertThat(files).isEmpty(); // Teildatei entfernt
+        }
+    }
+
+    @Test
+    void downloadFileAbortedLeavesNoPartialFile() throws IOException {
+        assertThatThrownBy(() -> client.downloadFile("cut", tmp.resolve("dl").toString(), null))
+                .isInstanceOf(MattermostException.class);
         try (Stream<Path> files = Files.list(tmp.resolve("dl"))) {
             assertThat(files).isEmpty(); // Teildatei entfernt
         }

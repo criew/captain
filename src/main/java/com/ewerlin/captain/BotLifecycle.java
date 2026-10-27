@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
 
+import com.ewerlin.captain.api.ApiServer;
 import com.ewerlin.captain.bot.Bot;
 
 /**
@@ -13,16 +14,20 @@ import com.ewerlin.captain.bot.Bot;
  * {@link Bot#stop()} – Cursor sichern, laufende Antworten abbrechen – und wartet, bis der
  * Bot-Thread fertig ist: Laufende Antworten bekommen bis zu {@link Bot#STOP_GRACE} Sekunden für ihre
  * „unterbrochen“-Notiz ({@code stop_grace_period: 20s} in Compose).
+ *
+ * <p>Der REST-Eingabekanal (falls konfiguriert) startet mit dem Bot und schließt vor ihm.
  */
 public class BotLifecycle implements SmartLifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(BotLifecycle.class);
 
     private final Bot bot;
+    private final ApiServer api;
     private volatile Thread thread;
 
-    public BotLifecycle(Bot bot) {
+    public BotLifecycle(Bot bot, ApiServer api) {
         this.bot = bot;
+        this.api = api;
     }
 
     @Override
@@ -38,6 +43,9 @@ public class BotLifecycle implements SmartLifecycle {
         t.setDaemon(false);
         thread = t;
         t.start();
+        if (api != null) {
+            api.start();
+        }
     }
 
     @Override
@@ -47,6 +55,9 @@ public class BotLifecycle implements SmartLifecycle {
             return;
         }
         log.info("Beende Captain");
+        if (api != null) {
+            api.close();
+        }
         bot.stop();
         try {
             t.join((long) ((Bot.STOP_GRACE + 5) * 1000));

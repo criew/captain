@@ -26,7 +26,7 @@ import tools.jackson.databind.JsonNode;
  * Integrationstests: editierbare Admin-Config vs. feste Sicherheitsbasis.
  *
  * <p>Startet einen eigenen opencode-Container aus dem Image ({@code CAPTAIN_OC_IMAGE}, Default
- * {@code captain/opencode:2.1.2} aus {@code compose.deploy.yml}) mit einer Admin-Config unter
+ * {@code captain/opencode:2.2.0} aus {@code compose.deploy.yml}) mit einer Admin-Config unter
  * {@code /etc/captain} – wie im Betrieb aus {@code $CAPTAIN_HOME/config} – und zwei Hilfsservern im
  * Testprozess: {@link FakeLlm} als OpenAI-kompatibler Endpunkt hinter dem generischen Provider
  * {@code llm} der Vorlage und {@link McpTestServer} als Remote-MCP-Server {@code testmcp} mit den

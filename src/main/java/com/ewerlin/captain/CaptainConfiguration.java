@@ -1,5 +1,7 @@
 package com.ewerlin.captain;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.file.Path;
 
 import org.slf4j.Logger;
@@ -8,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 
+import com.ewerlin.captain.api.ApiServer;
 import com.ewerlin.captain.bot.Bot;
 import com.ewerlin.captain.bot.SessionStore;
 import com.ewerlin.captain.config.CaptainConfig;
@@ -55,8 +58,14 @@ public class CaptainConfiguration {
         return new Bot(cfg, mm, oc, store);
     }
 
+    /** REST-Eingabekanal nur mit {@code CAPTAIN_API_TOKEN}. */
     @Bean
-    BotLifecycle botLifecycle(Bot bot) {
-        return new BotLifecycle(bot);
+    BotLifecycle botLifecycle(CaptainConfig cfg, Bot bot) throws IOException {
+        ApiServer api = cfg.apiToken() == null ? null
+                : new ApiServer(bot, cfg.apiToken(), new InetSocketAddress(ApiServer.PORT));
+        if (api == null) {
+            log.info("REST-Eingabekanal aus (CAPTAIN_API_TOKEN leer)");
+        }
+        return new BotLifecycle(bot, api);
     }
 }

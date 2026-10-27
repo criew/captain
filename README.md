@@ -230,7 +230,7 @@ sensible Dienste mitnutzen und Docker aktuell halten.
 
 ### 7. opencode-Config anpassen (ohne Rebuild)
 
-opencode 2.1.2 liest mehrere Config-Quellen in fester Reihenfolge (an 2.0.20 aus dem Binary ermittelt, mit 2.1.2 durch die Integrationstests bestätigt):
+opencode 2.2.0 liest mehrere Config-Quellen in fester Reihenfolge (an 2.0.20 aus dem Binary ermittelt, mit 2.2.0 durch die Integrationstests bestätigt):
 
 1. **Sicherheitsbasis im Image** (`infra/opencode/config/base.jsonc` →
    `/root/.config/opencode/opencode.jsonc`): globales `* * deny` und
@@ -396,7 +396,7 @@ Durchgesetzt wird an drei Stellen:
 | Policies (Obergrenze) | `infra/opencode/start.mjs` → `OPENCODE_CONFIG_CONTENT` | dieselben Muster als `webfetch:<muster>`; gilt auch ohne Session-Regeln. Die Admin-Config kann keine Policies setzen |
 | Egress-Filter | `infra/opencode/egress.mjs` (im Startskript) | nur mit Allowlist aktiv: opencode erreicht nur Allowlist-Hosts und die eigenen Endpunkte (`baseURL` der Provider, MCP-URLs, Cloud-APIs mit Key) – fängt Weiterleitungen ab, Log `[captain-egress] blockiert: …` |
 
-Was opencode bei webfetch prüft (an 2.0.20 aus dem Binary ermittelt, für 2.1.2 belegt durch
+Was opencode bei webfetch prüft (an 2.0.20 aus dem Binary ermittelt, für 2.2.0 belegt durch
 `WebfetchIntegrationTest`): die **rohe URL** des Modells, gegen
 Muster mit `*` (beliebig, auch `/`), `?` (genau ein Zeichen) und
 Groß-/Kleinschreibung; `\` zählt als `/`. **Weiterleitungen folgt opencode
@@ -521,7 +521,7 @@ Linie, wirkt mit Docker aber nicht (getestet: über ein `local`-Volume mit
 `o=bind,ro,nosymfollow` gibt Docker sie nur als Daten-String weiter, der
 Symlink wird weiter aufgelöst) – deshalb nicht verwendet.
 
-Was opencode bei Pfaden prüft (an 2.0.20 aus dem Binary, `FileAccess.resolve`, für 2.1.2
+Was opencode bei Pfaden prüft (an 2.0.20 aus dem Binary, `FileAccess.resolve`, für 2.2.0
 belegt durch `SharedIntegrationTest`): Der Pfad des Modells wird
 **lexikalisch** aufgelöst (`path.resolve` gegen das Session-Verzeichnis, `..`
 fällt weg, **kein realpath**). Liegt er außerhalb des Session-Verzeichnisses,
@@ -793,7 +793,7 @@ mit `pdf`-Eingabe.
 ## opencode-Client
 
 `opencode/OpencodeClient.java` spricht die v2-API von `opencode serve`
-(`@opencode/cli@2.1.2`, Basic-Auth-Benutzer `opencode`).
+(`@opencode/cli@2.2.0`, Basic-Auth-Benutzer `opencode`).
 
 ```java
 try (OpencodeClient oc = new OpencodeClient(url, password)) {
@@ -861,7 +861,7 @@ Integrationstests (`src/test/java/…`, Tag `integration`; einzeln z. B. mit
 | `MattermostIntegrationTest` | laufendes Test-Mattermost | WebSocket (DM, Gruppe, privat), Fortsetzen nach Abbruch, `PostStreamer` |
 | `OpencodeIntegrationTest` | laufendes opencode (`docker compose up -d opencode`) | Sessions, Modelle, Kontext, Deltas, parallele Prompts, Abbruch |
 | `RestrictIntegrationTest` | laufendes opencode | keine Shell/kein Web, nur das eigene Verzeichnis, Projekt-Config wirkungslos, Persona |
-| `ConfigLayersIntegrationTest` | Docker, Image `captain/opencode:2.1.2` | Admin-Config vs. Sicherheitsbasis, MCP-Allowlist, Startskript |
+| `ConfigLayersIntegrationTest` | Docker, Image `captain/opencode:2.2.0` | Admin-Config vs. Sicherheitsbasis, MCP-Allowlist, Startskript |
 | `WebfetchIntegrationTest` | Docker, Image | webfetch-Allowlist, Policies, Egress-Filter |
 | `SharedIntegrationTest` | Docker, Image | `/shared` nur lesen, Symlink-/Mount-Prüfung |
 
@@ -876,7 +876,7 @@ Container-Verzeichnis `CAPTAIN_OC_DIR` (Default `/tmp`). Die Restriktions-Tests
 legen Session-Verzeichnisse unter `/tmp/captain` per `docker exec` im
 Container `CAPTAIN_OC_CONTAINER` (Default `captain-opencode-1`) an. Die
 Docker-Tests starten eigene opencode-Container aus `CAPTAIN_OC_IMAGE` (Default
-`captain/opencode:2.1.2`, gebaut mit `docker compose -f compose.deploy.yml
+`captain/opencode:2.2.0`, gebaut mit `docker compose -f compose.deploy.yml
 build`) und dazu im Testprozess ein Fake-LLM, einen Test-MCP-Server und einen
 Web-Testserver; fehlen Docker oder Image, werden sie übersprungen. Mit einem
 lokalen CPU-Modell dauert der erste Prompt nach Kaltstart ~2 min.

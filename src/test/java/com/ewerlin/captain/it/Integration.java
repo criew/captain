@@ -26,7 +26,7 @@ import com.ewerlin.captain.TestData;
 public final class Integration {
 
     /** Image des Betriebs ({@code compose.deploy.yml}); per {@code CAPTAIN_OC_IMAGE} überschreibbar. */
-    public static final String IMAGE = env("CAPTAIN_OC_IMAGE", "captain/opencode:2.1.2");
+    public static final String IMAGE = env("CAPTAIN_OC_IMAGE", "captain/opencode:2.2.0");
     public static final Path TEMPLATE = TestData.ROOT.resolve("infra/opencode/config/opencode.jsonc");
     public static final Path AGENTS = TestData.ROOT.resolve("infra/opencode/config/AGENTS.md");
 

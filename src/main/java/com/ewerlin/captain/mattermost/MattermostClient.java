@@ -331,7 +331,13 @@ public class MattermostClient implements MattermostApi, AutoCloseable {
                         throw new MattermostException("GET /files/" + fileId + " -> " + status + ": "
                                 + text.substring(0, Math.min(300, text.length())));
                     }
-                    long written = copy(in, target, maxBytes);
+                    long written;
+                    try {
+                        written = copy(in, target, maxBytes);
+                    } catch (IOException | RuntimeException e) { // abgebrochener Download: keine Teildatei liegen lassen
+                        Files.deleteIfExists(target);
+                        throw e;
+                    }
                     if (maxBytes != null && written > maxBytes) {
                         Files.deleteIfExists(target);
                         throw new AttachmentTooLargeException(name, written, maxBytes);

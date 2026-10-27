@@ -47,7 +47,7 @@ class BotTest {
     void setUp() {
         CaptainConfig cfg = CaptainConfig.builder()
                 .mmUrl("http://mm").mmBotToken("t").opencodeUrl("http://oc")
-                .opencodeModel("ollama/gemma4:e4b")
+                .opencodeModel("llm/modell-a")
                 .sessionsDir(slash(tmp.resolve("ws")))
                 .dataDir(tmp.resolve("data").toString())
                 .systemPrompt("Du bist Testkapitän.")
@@ -63,6 +63,7 @@ class BotTest {
     @AfterEach
     void tearDown() {
         b.stop();
+        b.awaitStopped(5);
     }
 
     static JsonNode raw(String json) {
@@ -93,7 +94,7 @@ class BotTest {
         b.onPost(post("Hallo").build());
         waitIdle(b);
         assertThat(oc.prompts.getFirst().text()).isEqualTo("Hallo"); // DM: Text direkt
-        assertThat(oc.prompts.getFirst().options().model()).isEqualTo("ollama/gemma4:e4b");
+        assertThat(oc.prompts.getFirst().options().model()).isEqualTo("llm/modell-a");
         // Endstand kommt aus dem Rückgabewert, nicht aus dem letzten Delta
         assertThat(mm.finalMessages()).containsExactly("Antwort auf: Hallo");
         FakeMattermost.Sent reply = mm.sent().getFirst();
@@ -227,11 +228,11 @@ class BotTest {
         waitIdle(b);
         assertThat(oc.prompts.getLast().options().model()).isEqualTo("opencode/x");
         assertThat(oc.prompts.getLast().options().variant()).isEqualTo("high");
-        b.onPost(post("!modell ollama/gemma4:e4b").type("O").ch("c5").root(p.id()).build());
+        b.onPost(post("!modell llm/modell-a").type("O").ch("c5").root(p.id()).build());
         waitIdle(b);
         b.onPost(post("weiter").type("O").ch("c5").root(p.id()).build());
         waitIdle(b);
-        assertThat(oc.prompts.getLast().options().model()).isEqualTo("ollama/gemma4:e4b");
+        assertThat(oc.prompts.getLast().options().model()).isEqualTo("llm/modell-a");
         assertThat(oc.prompts.getLast().options().variant()).isNull();
     }
 
@@ -268,15 +269,6 @@ class BotTest {
         b.onPost(p); // doppelt zugestellt
         waitIdle(b);
         assertThat(oc.texts()).containsExactly("einmal");
-    }
-
-    @Test
-    void allowlist() {
-        b.cfg = b.cfg.toBuilder().allowedUsers(Set.of("bob")).build();
-        b.onPost(post("alice darf nicht").build());
-        b.onPost(post("bob darf").user("u_bob").build());
-        waitIdle(b);
-        assertThat(oc.texts()).containsExactly("bob darf");
     }
 
     @Test
@@ -484,6 +476,110 @@ class BotTest {
         assertThat(msgs).contains("_(abgebrochen)_");
     }
 
+    @Test
+    void stoppWhileAttachmentLoads() throws InterruptedException {
+        mm.downloadStarted = new CountDownLatch(1);
+        mm.downloadGate = new CountDownLatch(1);
+        b.onPost(post("mit Anhang").files("f1").build());
+        assertThat(mm.downloadStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        b.onPost(post("!stopp").build());
+        waitFor(() -> mm.finalMessages().stream().anyMatch(m -> m.startsWith("⏹️")), "Stopp-Antwort");
+        mm.downloadGate.countDown();
+        waitIdle(b);
+        assertThat(oc.prompts).isEmpty(); // Prompt startet gar nicht erst
+        assertThat(mm.finalMessages()).contains("⏹️ Abgebrochen.", "_(abgebrochen)_");
+    }
+
+    @Test
+    void stoppDropsQueuedBatchesBehindCommand() throws InterruptedException {
+        CountDownLatch gate = new CountDownLatch(1);
+        CountDownLatch running = new CountDownLatch(1);
+        oc.behaviour.add(call -> {
+            running.countDown();
+            await(gate);
+            throw new PromptInterruptedException("abgebrochen");
+        });
+        b.onPost(post("lang").build());
+        assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
+        // wartet: Bündel „a“, !neu, Bündel „b“ – alle noch in der Spur
+        b.onPost(post("a").build());
+        b.onPost(post("!neu").build());
+        b.onPost(post("b").build());
+        b.onPost(post("!stopp").build());
+        waitFor(() -> !oc.aborted().isEmpty(), "Abbruch");
+        gate.countDown();
+        waitIdle(b);
+        assertThat(oc.prompts).hasSize(1);
+        assertThat(mm.finalMessages()).anyMatch(m -> m.startsWith("⏹️ Abgebrochen. 3 wartende"));
+    }
+
+    @Test
+    void usersAreCached() {
+        for (int i = 0; i < 3; i++) {
+            b.onPost(post("@captain Runde " + i).type("O").ch("c5").build());
+        }
+        waitIdle(b);
+        assertThat(oc.prompts).hasSize(3);
+        assertThat(mm.userCalls.get()).isEqualTo(1); // nur Alice, einmal
+    }
+
+    // ---------------------------------------------------------------- REST-Eingabekanal
+
+    @Test
+    void askUsesOneSessionPerConversation() {
+        var first = b.ask("gitlab:mr-1", "starte ein Review", "n8n");
+        var second = b.ask("gitlab:mr-1", "neuer Kommentar", null);
+        var other = b.ask("gitlab:mr-2", "anderes MR", null);
+        assertThat(first.session()).isEqualTo(second.session()).isNotEqualTo(other.session());
+        assertThat(first.text()).isEqualTo("Antwort auf: n8n: starte ein Review");
+        assertThat(oc.texts()).containsExactly("n8n: starte ein Review", "neuer Kommentar", "anderes MR");
+        assertThat(store.get("api:gitlab:mr-1").get("opencode_session_id")).isEqualTo(first.session());
+        assertThat(oc.created.getFirst().title()).isEqualTo("REST api:gitlab:mr-1");
+        assertThat(oc.instructions.get(first.session())).containsKey("captain-kanal");
+        assertThat(oc.prompts.getFirst().options().model()).isEqualTo("llm/modell-a");
+        assertThat(mm.finalMessages()).isEmpty(); // nichts in Mattermost
+    }
+
+    @Test
+    void askSurvivesRestartViaStore() {
+        String sid = b.ask("x", "eins", null).session();
+        Bot again = new Bot(b.cfg, mm, oc, new SessionStore(Path.of(b.cfg.dataDir(), "sessions.json")));
+        try {
+            assertThat(again.ask("x", "zwei", null).session()).isEqualTo(sid);
+        } finally {
+            again.stop();
+        }
+    }
+
+    @Test
+    void forgetStartsNewSession() {
+        String sid = b.ask("x", "eins", null).session();
+        String dir = store.get("api:x").get("directory");
+        assertThat(b.forget("x")).isTrue();
+        assertThat(Path.of(dir)).doesNotExist();
+        assertThat(b.forget("x")).isFalse();
+        assertThat(b.ask("x", "zwei", null).session()).isNotEqualTo(sid);
+    }
+
+    @Test
+    void askSerializesSameConversation() throws Exception {
+        CountDownLatch gate = new CountDownLatch(1);
+        CountDownLatch running = new CountDownLatch(1);
+        oc.behaviour.add(call -> {
+            running.countDown();
+            await(gate);
+            return "eins fertig";
+        });
+        var first = java.util.concurrent.CompletableFuture.supplyAsync(() -> b.ask("x", "eins", null).text());
+        assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
+        var second = java.util.concurrent.CompletableFuture.supplyAsync(() -> b.ask("x", "zwei", null).text());
+        Thread.sleep(100);
+        assertThat(oc.prompts).hasSize(1); // zweite wartet
+        gate.countDown();
+        assertThat(first.get(5, TimeUnit.SECONDS)).isEqualTo("eins fertig");
+        assertThat(second.get(5, TimeUnit.SECONDS)).isEqualTo("Antwort auf: zwei");
+    }
+
     // ---------------------------------------------------------------- Review #18
 
     static final String CODE = "def f():\n    return  1\n\n| a  |  b |\n|----|----|";
@@ -602,7 +698,7 @@ class BotTest {
     @Test
     void modellStandardInThreadNamesChannelModel() {
         store.setModel("ch:c5", "opencode/x", "low");
-        b.onPost(post("@captain !modell ollama/gemma4:e4b").type("O").ch("c5").root("r1").build());
+        b.onPost(post("@captain !modell llm/modell-a").type("O").ch("c5").root("r1").build());
         waitIdle(b);
         b.onPost(post("!modell standard").type("O").ch("c5").root("r1").build());
         waitIdle(b);

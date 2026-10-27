@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 import com.ewerlin.captain.opencode.Rule;
 
 /**
- * Regelauswertung wie opencode (an 2.0.20 aus dem Binary ermittelt, mit 2.1.2 getestet): {@code wildcard} = Funktion {@code JD}
+ * Regelauswertung wie opencode (an 2.0.20 aus dem Binary ermittelt, mit 2.2.0 getestet): {@code wildcard} = Funktion {@code JD}
  * ({@code \} im Wert → {@code /}, {@code *} → {@code .*}, {@code ?} → {@code .}, Regex mit Flag
  * {@code s}, Groß-/Kleinschreibung zählt), Regeln: letzte passende gewinnt, ohne Treffer {@code ask};
  * ein Tool ist unsichtbar, wenn die letzte Regel seiner Aktion {@code resource: "*"} + {@code deny}

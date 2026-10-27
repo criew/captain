@@ -25,21 +25,30 @@ RUN set -e; \
 FROM node:22-bookworm-slim
 
 # Version fest pinnen (siehe README.md, Abschnitt "Version").
-ARG OPENCODE_VERSION=2.1.2
+ARG OPENCODE_VERSION=2.2.0
 
 COPY --from=ripgrep /rg /usr/local/bin/rg
 
 RUN npm install -g --no-fund --no-audit "@opencode/cli@${OPENCODE_VERSION}" \
  && opencode --version
 
+# --- Nutzer -------------------------------------------------------------------
+# Laeuft im Betrieb als beliebige UID/GID (compose.deploy.yml: CAPTAIN_UID/
+# CAPTAIN_GID), damit die Dateien unter CAPTAIN_HOME dem Host-Nutzer gehoeren.
+# HOME ist deshalb fest /home/captain: Config (root, nur lesbar) unter
+# .config/opencode, Daten (Volume) unter .local/share/opencode; Cache und
+# State muessen fuer jede UID schreibbar sein.
+ENV HOME=/home/captain
+
 # --- Sicherheitsbasis (fest im Image) ---------------------------------------
-# Globale Config: "* * deny" + policies (harte Obergrenze).
-COPY config/base.jsonc /root/.config/opencode/opencode.jsonc
+# Globale Config: "* * deny" + policies (harte Obergrenze). Gehoert root –
+# der opencode-Prozess kann sie nicht aendern.
+COPY config/base.jsonc /home/captain/.config/opencode/opencode.jsonc
 
 # Keine Projekt-Config aus dem Session-Verzeichnis (und darueber): sonst laedt
 # opencode dort opencode.json(c), .opencode/ (inkl. plugins/*.ts als JS im
 # Server!), .claude/, .agents/ und AGENTS.md – das Modell darf dort schreiben.
-# opencode (2.0.20–2.1.2) liest OPENCODE_CONFIG_PROJECT_DISABLE ?? OPENCODE_DISABLE_PROJECT_CONFIG.
+# opencode (2.0.20–2.2.0) liest OPENCODE_CONFIG_PROJECT_DISABLE ?? OPENCODE_DISABLE_PROJECT_CONFIG.
 ENV OPENCODE_DISABLE_PROJECT_CONFIG=1
 
 # Start ueber start.mjs: bereinigt die Admin-Config per Allowlist (keine
@@ -64,9 +73,13 @@ COPY start.mjs egress.mjs shared.mjs /opt/captain/
 COPY config/opencode.jsonc config/AGENTS.md /opt/captain/defaults/
 RUN mkdir -p /etc/captain \
  && cp /opt/captain/defaults/* /etc/captain/ \
- && ln -s /etc/captain/AGENTS.md /root/.config/opencode/AGENTS.md
+ && ln -s /etc/captain/AGENTS.md /home/captain/.config/opencode/AGENTS.md
 
-RUN mkdir -p /tmp/captain /root/.local/share/opencode
+# Schreibbar fuer jede UID (Sticky-Bit wie /tmp): Session-Verzeichnisse,
+# Daten (im Betrieb vom Host eingebunden), Cache/State und die bereinigte
+# Config-Kopie /run/captain.
+RUN mkdir -p /tmp/captain /home/captain/.local/share/opencode /home/captain/.local/state /home/captain/.cache /run/captain \
+ && chmod 1777 /tmp/captain /home/captain/.local/share/opencode /home/captain/.local/state /home/captain/.cache /run/captain
 WORKDIR /tmp/captain
 
 EXPOSE 4096

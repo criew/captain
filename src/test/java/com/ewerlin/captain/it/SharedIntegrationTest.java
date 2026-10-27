@@ -259,7 +259,7 @@ class SharedIntegrationTest {
         // Gegenprobe ohne Session-Sperren: die Policies aus start.mjs sind die Obergrenze
         assertThat(s.read("/shared/handbuch.txt", ALLOW_ALL)).contains("Stichwort");
         for (String path : List.of("/etc/passwd", s.other + "/geheim.txt", "/shared/repo/.git/config", "/sharedX/x",
-                "/root/.local/share/opencode/opencode.db")) {
+                "/home/captain/.local/share/opencode/opencode.db")) {
             answer = s.read(path, ALLOW_ALL);
             assertThat(answer).as(path).contains(BLOCKED).doesNotContain(SECRET, "TOKEN-123");
         }
@@ -296,7 +296,7 @@ class SharedIntegrationTest {
             "ln -s /etc/passwd /w/passwd",
             "ln -s /tmp/captain /w/sessions",
             "mkdir -p /w/a/b && ln -s ../../handbuch.txt /w/a/b/rel",
-            "ln -s /root/.local/share/opencode /w/sub/db",
+            "ln -s /home/captain/.local/share/opencode /w/sub/db",
             "ln /w/handbuch.txt /w/hart.txt",
             "mkfifo /w/fifo",
             "mkdir -p /w/m.git/objects /w/m.git/refs && echo ref > /w/m.git/HEAD",

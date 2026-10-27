@@ -18,7 +18,7 @@ import com.ewerlin.captain.opencode.Rule;
  * opencode-Container ein. Leer = Feature aus (dann hängt dort nur das leere Volume
  * {@code shared-leer}, und nichts gibt es frei).
  *
- * <p>Wie opencode (an 2.0.20 ermittelt, mit 2.1.2 getestet) Pfade außerhalb des Session-Verzeichnisses prüft (aus dem Binary,
+ * <p>Wie opencode (an 2.0.20 ermittelt, mit 2.2.0 getestet) Pfade außerhalb des Session-Verzeichnisses prüft (aus dem Binary,
  * {@code FileAccess.resolve}; belegt durch {@code SharedIntegrationTest}):
  * <ul>
  * <li>Der Pfad des Modells wird <b>lexikalisch</b> aufgelöst ({@code path.resolve} gegen das

@@ -13,7 +13,7 @@
 //     keine Symlinks, keine Dateien mit mehreren harten Links, keine
 //     Geraete/FIFOs/Sockets und keine Captain-eigenen Verzeichnisse.
 //
-// Warum die Pruefung: opencode (2.0.20–2.1.2) loest Pfade nur lexikalisch auf
+// Warum die Pruefung: opencode (2.0.20–2.2.0) loest Pfade nur lexikalisch auf
 // (path.resolve, kein realpath, FileAccess.resolve im Binary) und folgt beim
 // Lesen Symlinks. Ein Symlink /shared/x -> /tmp/captain/<andere-session> waere
 // als "/shared/x/..." erlaubt und laese fremde Daten. Deshalb startet opencode
@@ -48,7 +48,7 @@ const FORBIDDEN = /[:$\\\x00-\x1f\x7f]/;
 
 // Captain-eigene Verzeichnisse im Container: duerfen nie unter /shared auftauchen
 // (z. B. CAPTAIN_SHARED_DIR=$CAPTAIN_HOME oder ein Bind-Mount darunter).
-export const SENSITIVE = ["/tmp/captain", "/root/.local/share/opencode", "/etc/captain", "/run/captain", "/root/.config/opencode"];
+export const SENSITIVE = ["/tmp/captain", "/home/captain/.local/share/opencode", "/etc/captain", "/run/captain", "/home/captain/.config/opencode"];
 
 const segments = (p) => p.split("/").filter(Boolean);
 

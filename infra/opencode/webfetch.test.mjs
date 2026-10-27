@@ -86,14 +86,14 @@ test("Umgebung: Proxy nur mit Egress-Filter umgelenkt, Variable selbst nicht an 
 test("Egress: erlaubte Ziele aus Allowlist und Infrastruktur", () => {
   const warnings = [];
   const clean = {
-    providers: { llm: { settings: { baseURL: "https://vllm.example.org/v1" } }, ollama: { settings: { baseURL: "http://host.docker.internal:11434/v1" } },
-      anthropic: {}, kaputt: {} },
+    providers: { llm: { settings: { baseURL: "https://vllm.example.org/v1" } }, zweit: { settings: { baseURL: "http://host.docker.internal:11434/v1" } },
+      kaputt: {} },
     mcp: { servers: { wetter: { url: "https://mcp.example.org:8443/mcp" } } },
   };
   const set = allowedTargets(["http://text-example.org", "https://docs.example.org:8443/x"], clean,
-    { ANTHROPIC_API_KEY: "a", LLM_BASE_URL: "http://llm.intern:8000/v1" }, (w) => warnings.push(w));
+    { ANTHROPIC_API_KEY: "a", LLM_BASE_URL: "http://llm.intern:8000/v1" }, (w) => warnings.push(w)); // Cloud-Key zaehlt nicht
   assert.deepEqual([...set].sort(), [
-    "api.anthropic.com:443", "docs.example.org:8443", "host.docker.internal:11434", "llm.intern:8000",
+    "docs.example.org:8443", "host.docker.internal:11434", "llm.intern:8000",
     "mcp.example.org:8443", "text-example.org:443", "text-example.org:80", "vllm.example.org:443",
   ]);
   assert.equal(warnings.length, 1);

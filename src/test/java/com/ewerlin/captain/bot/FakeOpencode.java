@@ -42,7 +42,7 @@ class FakeOpencode implements OpencodeApi {
     final List<String> aborted = new ArrayList<>();
     final List<String> instructionCalls = new ArrayList<>();
     List<ModelInfo> models = List.of(
-            new ModelInfo("ollama/gemma4:e4b", "g", List.of()),
+            new ModelInfo("llm/modell-a", "g", List.of()),
             new ModelInfo("opencode/x", "x", List.of("low", "high")));
 
     @Override

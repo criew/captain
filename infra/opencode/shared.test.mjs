@@ -59,7 +59,7 @@ test("Policies: external_directory nur fuer /shared/*, .git und edit gesperrt", 
     assert.equal(blocked(on, "external_directory", r), false, r);
   }
   for (const r of ["*", "/*", "/sharedX/*", "/shared-x/*", "/SHARED/*", "/tmp/captain/*", "/tmp/captain/ses_x/*",
-    "/etc/*", "/root/.local/share/opencode/*", "/shared/.git/*", "/shared/repo/.git/*", "/shared/a/b/.git/objects/*"]) {
+    "/etc/*", "/home/captain/.local/share/opencode/*", "/shared/.git/*", "/shared/repo/.git/*", "/shared/a/b/.git/objects/*"]) {
     assert.ok(blocked(on, "external_directory", r), r);
   }
   for (const r of ["/shared/.git", "/shared/repo/.git", "/shared/repo/.git/config"]) assert.ok(blocked(on, "read", r), r);

@@ -15,7 +15,7 @@ import com.ewerlin.captain.opencode.Rule;
  * <p>Der Admin gibt kommagetrennte URL-Präfixe an, z. B. {@code http://text-example.org} oder
  * {@code https://docs.example.org/handbuch}. Leer = webfetch komplett aus.
  *
- * <p>Wie opencode (an 2.0.20 ermittelt, mit 2.1.2 getestet) webfetch prüft (aus dem Binary ermittelt, per
+ * <p>Wie opencode (an 2.0.20 ermittelt, mit 2.2.0 getestet) webfetch prüft (aus dem Binary ermittelt, per
  * {@code WebfetchIntegrationTest} belegt):
  * <ul>
  * <li>Ressource ist die <b>rohe URL</b>, wie das Modell sie übergibt (keine Normalisierung; vorher
