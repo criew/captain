@@ -76,6 +76,7 @@ public class SessionStore {
         if (raw == null || !raw.isObject()) {
             return out;
         }
+        int migrated = 0;
         for (Map.Entry<String, JsonNode> e : raw.properties()) {
             if (!e.getValue().isObject()) {
                 continue;
@@ -84,7 +85,22 @@ public class SessionStore {
             for (Map.Entry<String, JsonNode> f : e.getValue().properties()) {
                 entry.put(f.getKey(), Json.scalar(f.getValue()));
             }
-            out.put(e.getKey(), entry);
+            String key = SessionKeys.migrate(e.getKey());
+            if (!key.equals(e.getKey())) {
+                migrated++;
+                if (raw.has(key)) {
+                    continue; // neuer Key schon vorhanden: gewinnt
+                }
+            }
+            out.put(key, entry);
+        }
+        if (migrated > 0) {
+            log.info("Session-Datei {}: {} alte Keys (dm:/ch:/th:) auf matter-… umgestellt", path, migrated);
+            try {
+                commit(out);
+            } catch (UncheckedIOException e) { // spätere Änderungen schreiben es mit
+                log.warn("Session-Datei {}: Umstellung nicht gespeichert: {}", path, e.getMessage());
+            }
         }
         return out;
     }

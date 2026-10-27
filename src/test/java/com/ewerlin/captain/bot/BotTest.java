@@ -100,7 +100,7 @@ class BotTest {
         FakeMattermost.Sent reply = mm.sent().getFirst();
         assertThat(reply.rootId).isNull();
         assertThat(reply.channelId).isEqualTo("c1");
-        Map<String, String> entry = store.get("dm:c1");
+        Map<String, String> entry = store.get("matter-dm:c1");
         assertThat(entry.get("opencode_session_id")).isEqualTo("ses_1");
         assertThat(entry.get("directory")).isEqualTo(b.cfg.sessionsDir() + "/ses_1");
         assertThat(Path.of(entry.get("directory"))).isDirectory();
@@ -113,7 +113,7 @@ class BotTest {
         b.onPost(p);
         waitIdle(b);
         assertThat(oc.prompts.getFirst().text()).isEqualTo("Bobby: Hi"); // Erwähnung entfernt
-        assertThat(store.get("th:" + p.id())).isNotNull();
+        assertThat(store.get("matter-th:" + p.id())).isNotNull();
         assertThat(oc.created.getFirst().directory()).endsWith("/ws/ses_1");
         FakeMattermost.Sent reply = mm.sent().getFirst();
         assertThat(reply.rootId).isEqualTo(p.id());
@@ -209,10 +209,10 @@ class BotTest {
         Post p = post("@captain los").type("O").ch("c5").build();
         b.onPost(p);
         waitIdle(b);
-        assertThat(store.get("th:" + p.id()).get("opencode_session_id")).isEqualTo("ses_1");
+        assertThat(store.get("matter-th:" + p.id()).get("opencode_session_id")).isEqualTo("ses_1");
         b.onPost(post("!neu").type("O").ch("c5").root(p.id()).build());
         waitIdle(b);
-        assertThat(store.get("th:" + p.id())).isNull();
+        assertThat(store.get("matter-th:" + p.id())).isNull();
         b.onPost(post("weiter").type("O").ch("c5").root(p.id()).build()); // ohne Erwähnung
         waitIdle(b);
         assertThat(oc.prompts.getLast().sid()).isEqualTo("ses_2");
@@ -222,7 +222,7 @@ class BotTest {
     void channelModelAppliesToNewThreads() {
         b.onPost(post("@captain !modell opencode/x high").type("O").ch("c5").build());
         waitIdle(b);
-        assertThat(store.get("ch:c5")).isEqualTo(Map.of("model", "opencode/x", "variant", "high"));
+        assertThat(store.get("matter-ch:c5")).isEqualTo(Map.of("model", "opencode/x", "variant", "high"));
         Post p = post("@captain Hallo").type("O").ch("c5").build();
         b.onPost(p);
         waitIdle(b);
@@ -250,7 +250,7 @@ class BotTest {
                 "[Bisheriger Verlauf dieses Threads]\n"
                         + "Bobby: Wie wird das Wetter?\nCaptain (du): Sonnig.\n"
                         + "[Ende des Verlaufs]\n\nAlice Test: Und morgen?");
-        assertThat(store.get("th:r1")).isNotNull();
+        assertThat(store.get("matter-th:r1")).isNotNull();
         assertThat(mm.sent().getFirst().rootId).isEqualTo("r1");
         // zweite Nachricht im Thread: gleiche Session, kein erneuter Kontext
         b.onPost(post("Danke").type("P").ch("c2").root("r1").build());
@@ -353,7 +353,7 @@ class BotTest {
     void sessionGoneRetriesOnceWithNewSession() throws IOException {
         String old = b.sessionDir("ses_alt");
         Files.createDirectories(Path.of(old));
-        store.set("dm:c1", "ses_alt", old);
+        store.set("matter-dm:c1", "ses_alt", old);
         oc.behaviour.add(call -> {
             call.delta("halb");
             throw new SessionGoneException("weg");
@@ -361,7 +361,7 @@ class BotTest {
         b.onPost(post("Hallo").build());
         waitIdle(b);
         assertThat(oc.prompts().stream().map(FakeOpencode.Call::sid).toList()).containsExactly("ses_alt", "ses_1");
-        assertThat(store.get("dm:c1").get("opencode_session_id")).isEqualTo("ses_1");
+        assertThat(store.get("matter-dm:c1").get("opencode_session_id")).isEqualTo("ses_1");
         assertThat(mm.finalMessages().getLast()).isEqualTo("Antwort auf: Hallo");
         assertThat(Path.of(old)).doesNotExist(); // Selbstheilung räumt das alte Verzeichnis ab
         assertThat(oc.prompts.get(1).options().directory()).isEqualTo(b.sessionDir("ses_1"));
@@ -439,7 +439,7 @@ class BotTest {
         assertThat(mm.finalMessages().getLast()).contains("`opencode/x` – Varianten: low, high");
         b.onPost(post("!modell opencode/x high").build());
         waitIdle(b);
-        assertThat(store.get("dm:c1")).isEqualTo(Map.of("model", "opencode/x", "variant", "high"));
+        assertThat(store.get("matter-dm:c1")).isEqualTo(Map.of("model", "opencode/x", "variant", "high"));
         b.onPost(post("!modell gibtsnicht/y").build());
         waitIdle(b);
         assertThat(mm.finalMessages().getLast()).contains("Unbekanntes Modell");
@@ -449,8 +449,8 @@ class BotTest {
         assertThat(oc.prompts.getLast().options().variant()).isEqualTo("high");
         b.onPost(post("!modell standard").build());
         waitIdle(b);
-        assertThat(store.get("dm:c1").get("opencode_session_id")).isNotEmpty();
-        assertThat(store.get("dm:c1")).doesNotContainKey("model");
+        assertThat(store.get("matter-dm:c1").get("opencode_session_id")).isNotEmpty();
+        assertThat(store.get("matter-dm:c1")).doesNotContainKey("model");
     }
 
     @Test
@@ -533,8 +533,8 @@ class BotTest {
         assertThat(first.session()).isEqualTo(second.session()).isNotEqualTo(other.session());
         assertThat(first.text()).isEqualTo("Antwort auf: n8n: starte ein Review");
         assertThat(oc.texts()).containsExactly("n8n: starte ein Review", "neuer Kommentar", "anderes MR");
-        assertThat(store.get("api:gitlab:mr-1").get("opencode_session_id")).isEqualTo(first.session());
-        assertThat(oc.created.getFirst().title()).isEqualTo("REST api:gitlab:mr-1");
+        assertThat(store.get("rest:gitlab:mr-1").get("opencode_session_id")).isEqualTo(first.session());
+        assertThat(oc.created.getFirst().title()).isEqualTo("REST rest:gitlab:mr-1");
         assertThat(oc.instructions.get(first.session())).containsKey("captain-kanal");
         assertThat(oc.prompts.getFirst().options().model()).isEqualTo("llm/modell-a");
         assertThat(mm.finalMessages()).isEmpty(); // nichts in Mattermost
@@ -554,7 +554,7 @@ class BotTest {
     @Test
     void forgetStartsNewSession() {
         String sid = b.ask("x", "eins", null).session();
-        String dir = store.get("api:x").get("directory");
+        String dir = store.get("rest:x").get("directory");
         assertThat(b.forget("x")).isTrue();
         assertThat(Path.of(dir)).doesNotExist();
         assertThat(b.forget("x")).isFalse();
@@ -697,7 +697,7 @@ class BotTest {
 
     @Test
     void modellStandardInThreadNamesChannelModel() {
-        store.setModel("ch:c5", "opencode/x", "low");
+        store.setModel("matter-ch:c5", "opencode/x", "low");
         b.onPost(post("@captain !modell llm/modell-a").type("O").ch("c5").root("r1").build());
         waitIdle(b);
         b.onPost(post("!modell standard").type("O").ch("c5").root("r1").build());
@@ -727,7 +727,7 @@ class BotTest {
                 && List.of("shell", "webfetch", "execute", "*").contains(r.action()));
         assertThat(rules.getLast().effect()).isEqualTo("deny");
         Map<String, String> entries = oc.instructions.get("ses_1");
-        assertThat(entries.keySet()).containsExactly("captain-persona", "captain-umgebung"); // Reihenfolge
+        assertThat(entries.keySet()).containsExactly("captain-persona", "captain-umgebung", "captain-kanal"); // Reihenfolge
         assertThat(entries.get("captain-persona")).isEqualTo("Du bist Testkapitän.");
         assertThat(entries.get("captain-umgebung")).contains(directory);
     }
@@ -757,7 +757,7 @@ class BotTest {
         oc.instructionsError = new OpencodeException("HTTP 404");
         b.onPost(post("Hallo").build());
         waitIdle(b);
-        assertThat(store.get("dm:c1").get("opencode_session_id")).isEqualTo("ses_1");
+        assertThat(store.get("matter-dm:c1").get("opencode_session_id")).isEqualTo("ses_1");
         String first = oc.prompts.getFirst().text();
         // Ersatz: markierter Vorspann mit Persona + Arbeitsumgebung im ersten Prompt
         assertThat(first).startsWith("[Systemhinweise für diese Unterhaltung]\nDu bist Testkapitän.")
@@ -768,7 +768,7 @@ class BotTest {
         b.onPost(post("Weiter").build());
         waitIdle(b);
         assertThat(oc.prompts.get(1).text()).isEqualTo("Weiter");
-        assertThat(oc.instructions.get("ses_1").keySet()).containsExactly("captain-persona", "captain-umgebung");
+        assertThat(oc.instructions.get("ses_1").keySet()).containsExactly("captain-persona", "captain-umgebung", "captain-kanal");
     }
 
     @Test
@@ -789,15 +789,15 @@ class BotTest {
     void neuRemovesSessionDirAndNextGetsNewOne() {
         b.onPost(post("Schau mal").files("f1").build());
         waitIdle(b);
-        String first = store.get("dm:c1").get("directory");
+        String first = store.get("matter-dm:c1").get("directory");
         assertThat(Path.of(first, "f1.txt")).isRegularFile();
         b.onPost(post("!neu").build());
         waitIdle(b);
         assertThat(Path.of(first)).doesNotExist();
-        assertThat(store.get("dm:c1") == null ? Map.of() : store.get("dm:c1")).doesNotContainKey("directory");
+        assertThat(store.get("matter-dm:c1") == null ? Map.of() : store.get("matter-dm:c1")).doesNotContainKey("directory");
         b.onPost(post("weiter").build());
         waitIdle(b);
-        String second = store.get("dm:c1").get("directory");
+        String second = store.get("matter-dm:c1").get("directory");
         assertThat(second).isNotEqualTo(first).endsWith("/ses_2");
         assertThat(Path.of(second)).isDirectory();
     }
@@ -806,7 +806,7 @@ class BotTest {
     void existingSessionKeepsDirAndRecreatesMissing() throws IOException {
         b.onPost(post("eins").build());
         waitIdle(b);
-        String directory = store.get("dm:c1").get("directory");
+        String directory = store.get("matter-dm:c1").get("directory");
         Files.delete(Path.of(directory)); // z. B. Volume geleert
         b.onPost(post("zwei").build());
         waitIdle(b);
@@ -818,7 +818,7 @@ class BotTest {
     void legacyWorkspaceEntryGetsNewSessionWithoutDeleting() throws IOException {
         Path legacy = tmp.resolve("workspaces").resolve("dm_c1");
         Files.createDirectories(legacy);
-        store.set("dm:c1", "ses_alt", slash(legacy));
+        store.set("matter-dm:c1", "ses_alt", slash(legacy));
         b.onPost(post("Hallo").build());
         waitIdle(b);
         assertThat(oc.prompts.getFirst().sid()).isEqualTo("ses_1");

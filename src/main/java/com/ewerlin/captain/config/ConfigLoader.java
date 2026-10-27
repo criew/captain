@@ -49,7 +49,7 @@ public final class ConfigLoader {
             "CAPTAIN_SHARED_DIR", "CAPTAIN_HOME", "CAPTAIN_API_TOKEN");
     public static final Map<String, String> DEFAULTS = defaults();
     public static final String DEFAULT_SYSTEM_PROMPT =
-            "Du bist **Captain**, ein hilfsbereiter, sachlicher Assistent, der über Mattermost mit Menschen chattet.";
+            "Du bist **Captain**, ein hilfsbereiter, sachlicher Assistent.";
     static final List<String> KEYS = Stream.of(REQUIRED, OPTIONAL, List.copyOf(DEFAULTS.keySet()))
             .flatMap(List::stream).toList();
 

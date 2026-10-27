@@ -10,16 +10,24 @@ import com.ewerlin.captain.policy.SharedDir;
 /**
  * Session-Keys, Session-IDs und Systemanweisungen pro Session.
  *
- * <p>Session-Keys:
+ * <p>Session-Keys, Präfix = Eingabekanal:
  * <ul>
- * <li>{@code dm:<channel_id>} – Direktnachricht</li>
- * <li>{@code ch:<channel_id>} – Gruppen-DM/Kanal – nur noch Kanal-Einstellungen (Modell),
- * Unterhaltungen laufen dort in Threads</li>
- * <li>{@code th:<root_id>} – Thread (egal in welchem Kanal)</li>
+ * <li>{@code matter-dm:<channel_id>} – Mattermost-Direktnachricht</li>
+ * <li>{@code matter-ch:<channel_id>} – Mattermost-Gruppen-DM/Kanal – nur Kanal-Einstellungen
+ * (Modell), Unterhaltungen laufen dort in Threads</li>
+ * <li>{@code matter-th:<root_id>} – Mattermost-Thread (egal in welchem Kanal)</li>
+ * <li>{@code rest:<id>} – REST-Eingabekanal, ID vom Aufrufer</li>
  * </ul>
- * Welcher Key für einen Post gilt, entscheidet {@link Routing}.
+ * Welcher Key für einen Mattermost-Post gilt, entscheidet {@link Routing}. Ältere Keys ohne
+ * Kanal ({@code dm:}, {@code ch:}, {@code th:}) übersetzt {@link #migrate}.
  */
 public final class SessionKeys {
+
+    public static final String MATTER_DM = "matter-dm:";
+    public static final String MATTER_CHANNEL = "matter-ch:";
+    public static final String MATTER_THREAD = "matter-th:";
+    public static final String REST = "rest:";
+    private static final Map<String, String> LEGACY = Map.of("dm:", MATTER_DM, "ch:", MATTER_CHANNEL, "th:", MATTER_THREAD);
 
     private SessionKeys() {
     }
@@ -27,12 +35,27 @@ public final class SessionKeys {
     /** Key aus Mattermost-Kanaltyp (D/G/O/P), Kanal-ID und optional Thread-Root. */
     public static String of(String channelType, String channelId, String rootId) {
         if (rootId != null && !rootId.isEmpty()) {
-            return "th:" + rootId;
+            return MATTER_THREAD + rootId;
         }
         if (channelType.equals("D")) {
-            return "dm:" + channelId;
+            return MATTER_DM + channelId;
         }
-        return "ch:" + channelId;
+        return MATTER_CHANNEL + channelId;
+    }
+
+    /** Alter Key ({@code dm:}/{@code ch:}/{@code th:}, vor dem REST-Kanal) → neuer; sonst unverändert. */
+    public static String migrate(String key) {
+        for (Map.Entry<String, String> e : LEGACY.entrySet()) {
+            if (key.startsWith(e.getKey())) {
+                return e.getValue() + key.substring(e.getKey().length());
+            }
+        }
+        return key;
+    }
+
+    /** Läuft der Key über Mattermost? */
+    public static boolean mattermost(String key) {
+        return key.startsWith("matter-");
     }
 
     /**

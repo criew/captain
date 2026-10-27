@@ -85,7 +85,7 @@ import tools.jackson.databind.node.ObjectNode;
  *
  * <h2>REST-Eingabekanal</h2>
  * {@link #ask} beantwortet eine Nachricht ohne Mattermost: Die Conversation-ID des Aufrufers wird
- * zum Session-Key {@code api:<id>}, gleiche ID = gleiche opencode-Session. Anfragen derselben ID
+ * zum Session-Key {@code rest:<id>}, gleiche ID = gleiche opencode-Session. Anfragen derselben ID
  * laufen nacheinander (fairer {@link KeyLocks}-Lock), siehe {@link com.ewerlin.captain.api.ApiServer}.
  */
 public class Bot implements Conversations {
@@ -112,11 +112,21 @@ public class Bot implements Conversations {
     /** Mattermost-Nutzer so lange (Sekunden) und so viele zwischenspeichern. */
     static final double USER_TTL = 600.0;
     static final int USERS_MAX = 2000;
-    /** Präfix der Session-Keys des REST-Eingabekanals. */
-    public static final String API_PREFIX = "api:";
+    /** Systemanweisung {@code captain-kanal}: wie im jeweiligen Eingabekanal antworten. */
+    static final String MATTERMOST_NOTE = """
+            # Kanal: Mattermost
+            Du chattest über Mattermost mit Menschen.
+            - Formatiere für Mattermost-Markdown: `**fett**`, `_kursiv_`, `` `Code` ``, Codeblöcke mit \
+            ```` ``` ````, Listen mit `-`, Tabellen nur wenn sie wirklich helfen. Keine HTML-Tags.
+            - In Gruppenchats kommen Nachrichten als `Name: Text`. Sprich Personen bei Bedarf mit Namen an.
+            - Rückfragen stellst du bei Bedarf einfach als normale Chat-Antwort.""";
     static final String API_NOTE = """
-            # Kanal
-            Diese Unterhaltung läuft nicht über Mattermost, sondern über die REST-Schnittstelle: Die             Nachrichten kommen von einer Automatisierung (z. B. einem Webhook), deine Antwort verarbeitet             sie weiter (z. B. als Kommentar in einem Merge Request). Antworte deshalb direkt mit dem             Ergebnis, ohne Rückfragen oder Chat-Floskeln.""";
+            # Kanal: REST-Schnittstelle
+            Die Nachrichten kommen von einer Automatisierung (z. B. einem Webhook), nicht aus einem Chat; \
+            deine Antwort verarbeitet sie weiter (z. B. als Kommentar in einem Merge Request).
+            - Antworte direkt mit dem Ergebnis, ohne Rückfragen, Begrüßung oder Chat-Floskeln.
+            - Formatiere als gewöhnliches Markdown (CommonMark/GitLab), keine HTML-Tags.
+            - Kommt eine Nachricht als `Name: Text`, stammt sie von dieser Person bzw. diesem System.""";
 
     static final String HELP = """
             **Captain** – ich reiche Nachrichten an opencode weiter und antworte hier.
@@ -1073,7 +1083,7 @@ public class Bot implements Conversations {
         sid = newSessionId.get();
         directory = sessionDir(sid);
         mkdirs(directory);
-        String created = oc.createSession(directory, (key.startsWith(API_PREFIX) ? "REST " : "Mattermost ") + key,
+        String created = oc.createSession(directory, (key.startsWith(SessionKeys.REST) ? "REST " : "Mattermost ") + key,
                 SessionPermissions.of(directory, cfg.webfetchAllow(), cfg.shared()), sid);
         if (!created.equals(sid)) {
             log.warn("{}: opencode vergab {} statt {}", key, created, sid);
@@ -1100,9 +1110,7 @@ public class Bot implements Conversations {
     private Map<String, String> instructions(String key, String directory) {
         Map<String, String> entries = SessionKeys.sessionInstructions(cfg.systemPrompt(), directory, cfg.webfetchAllow(),
                 cfg.shared());
-        if (key.startsWith(API_PREFIX)) {
-            entries.put("captain-kanal", API_NOTE);
-        }
+        entries.put("captain-kanal", key.startsWith(SessionKeys.REST) ? API_NOTE : MATTERMOST_NOTE);
         return entries;
     }
 
@@ -1276,7 +1284,7 @@ public class Bot implements Conversations {
         if (entry != null && entry.get("model") != null && !entry.get("model").isEmpty()) {
             return new Settings(entry.get("model"), entry.get("variant"), "hier");
         }
-        String channel = "ch:" + post.channelId();
+        String channel = SessionKeys.MATTER_CHANNEL + post.channelId();
         if (!post.channelType().equals("D") && !key.equals(channel)) {
             entry = store.get(channel);
             if (entry != null && entry.get("model") != null && !entry.get("model").isEmpty()) {
@@ -1403,7 +1411,7 @@ public class Bot implements Conversations {
 
     /**
      * Beantwortet {@code text} in der Unterhaltung {@code conversation} (Session-Key
-     * {@code api:<conversation>}); blockiert bis zur fertigen Antwort.
+     * {@code rest:<conversation>}); blockiert bis zur fertigen Antwort.
      *
      * <p>Gleiche ID = gleiche opencode-Session, auch über Neustarts (Session-Store). Anfragen
      * derselben ID laufen nacheinander. Modell: wie für den Key gesetzt, sonst Standard.
@@ -1413,7 +1421,7 @@ public class Bot implements Conversations {
      */
     @Override
     public Answer ask(String conversation, String text, String sender) {
-        String key = API_PREFIX + conversation;
+        String key = SessionKeys.REST + conversation;
         String prompt = sender == null || sender.isBlank() ? text : sender.strip() + ": " + text;
         try (KeyLocks.Held held = locks.lock(key)) {
             synchronized (mutex) {
@@ -1465,7 +1473,7 @@ public class Bot implements Conversations {
      */
     @Override
     public boolean forget(String conversation) {
-        String key = API_PREFIX + conversation;
+        String key = SessionKeys.REST + conversation;
         String sid = running.get(key);
         if (sid != null) {
             oc.abort(sid);
@@ -1633,7 +1641,7 @@ public class Bot implements Conversations {
         }
         store.setModel(key, model, variant);
         String suffix = variant != null ? ", Variante `" + variant + "`" : "";
-        String where = key.startsWith("ch:") ? "diesen Kanal (neue Threads)" : "diesen Chat";
+        String where = key.startsWith(SessionKeys.MATTER_CHANNEL) ? "diesen Kanal (neue Threads)" : "diesen Chat";
         reply(post, "✅ Modell für " + where + ": `" + model + "`" + suffix);
     }
 }
