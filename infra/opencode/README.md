@@ -3,7 +3,7 @@
 opencode läuft headless als dauerhafter Server im Container `opencode` (Port `4096`)
 und wird über das Root-`compose.yml` (`include:`) eingebunden. Dasselbe Image
 nutzt der Betrieb (`compose.deploy.yml`, Tag `captain/opencode:2.2.0`, ohne
-Host-Port; siehe Haupt-README).
+Host-Port; siehe `docs/betrieb.md`).
 
 ## Schnellstart
 
@@ -24,7 +24,7 @@ abgeschaltet (`"update": "disable"`).
 
 Begründung: v2 läuft headless im Server-Modus sauber (`opencode serve`), bringt eine
 versionierte REST-API unter `/api/*` mit OpenAPI-Spec, ein typisiertes SSE-Event-Modell
-mit Text-Deltas sowie automatische Ollama-Discovery. Alle Akzeptanztests (Session,
+mit Text-Deltas. Alle Akzeptanztests (Session,
 Prompt, SSE, Tools, Permissions, Interrupt) liefen gegen 2.0.20 und nach dem
 Update gegen 2.2.0 erfolgreich. v1 (`opencode-ai` 1.x, GitHub-Releases `v1.*`)
 wird nicht benötigt.
@@ -53,14 +53,13 @@ Achtung: v2-Konfiguration ist **nicht** v1-kompatibel (`providers` statt `provid
 |---|---|
 | `Dockerfile` | `node:22-bookworm-slim` + `@opencode/cli` (npm) + ripgrep (GitHub-Release, Prüfsumme) – ohne Paketmanager der Distribution |
 | `compose.yml` | Test-Setup: Service `opencode`, Port 4096, Volumes `captain-tmp`, `opencode-data`, `/shared` (`CAPTAIN_SHARED_DIR` aus der Shell, sonst leeres Volume `shared-leer`) |
-| `config/base.jsonc` | **Sicherheitsbasis** (fest im Image) → `/root/.config/opencode/opencode.jsonc` |
+| `config/base.jsonc` | **Sicherheitsbasis** (fest im Image) → `/home/captain/.config/opencode/opencode.jsonc` |
 | `start.mjs` | Entrypoint: prüft die Admin-Config per Allowlist, schreibt die bereinigte Kopie `/run/captain/opencode.json` (= `OPENCODE_CONFIG`), setzt `OPENCODE_CONFIG_CONTENT` (inkl. webfetch- und external_directory-Policies)/Projekt-Config-Sperre fest, prüft `/shared`, reicht nur eine Umgebungs-Allowlist durch, startet `opencode serve` |
 | `egress.mjs` | Egress-Filter (HTTP-Proxy auf 127.0.0.1 im Startskript), nur aktiv mit `CAPTAIN_WEBFETCH_ALLOW` – siehe „webfetch“ |
 | `shared.mjs` | Geteiltes Verzeichnis `/shared` (`CAPTAIN_SHARED_DIR`): Pfadprüfung, Policies, Prüfung auf Symlinks u. a. beim Start und alle 10 s – siehe „Geteiltes Verzeichnis“ |
 | `start.test.mjs`, `webfetch.test.mjs`, `shared.test.mjs` | Node-Unit-Tests (über `StartScriptTest` bzw. `./gradlew nodeTest`) |
 | `config/opencode.jsonc` | Vorlage der **Admin-Config** (Provider `llm`, MCP, Freigaben) → `/etc/captain/opencode.jsonc` (`OPENCODE_CONFIG`) und `/opt/captain/defaults/` |
-| `config/opencode.test.jsonc` | Admin-Config des Test-Setups (Ollama), per `compose.yml` eingebunden |
-| `config/AGENTS.md` | globaler Systemprompt „Captain“ → `/etc/captain/AGENTS.md` (Symlink von `/root/.config/opencode/AGENTS.md`) |
+| `config/AGENTS.md` | globaler Systemprompt „Captain“ → `/etc/captain/AGENTS.md` (Symlink von `/home/captain/.config/opencode/AGENTS.md`); kanalneutral, Kanal-Formatierung setzt der Bot per `captain-kanal` |
 | `.env.example` | Vorlage für `.env` (gitignored) |
 | `openapi.json` | OpenAPI-3.1-Spec der gepinnten Version (von `GET /openapi.json`) |
 
@@ -70,21 +69,21 @@ Admin-Config und `AGENTS.md` unter `/etc/captain` bindet der Betrieb aus
 
 ## Config-Quellen (an 2.0.20 aus dem Binary ermittelt, mit 2.2.0 durch die Integrationstests bestätigt)
 
-opencode lädt nacheinander: global (`/root/.config/opencode/opencode.jsonc`) →
+opencode lädt nacheinander: global (`/home/captain/.config/opencode/opencode.jsonc`) →
 `OPENCODE_CONFIG` (bereinigte Kopie) → Projekt-Config (hier abgeschaltet) →
 `OPENCODE_CONFIG_CONTENT`. Zusammengeführt wird je Schlüssel verschieden:
 
 | Schlüssel | Zusammenführung | Risiko aus der Admin-Config |
 |---|---|---|
-| `plugins` | aus allen Quellen gesammelt (nur gezieltes Entfernen möglich) | JavaScript im Server als root |
-| `mcp.servers` | pro Name, spätere Quelle gewinnt | `type: local` startet beliebige Prozesse als root |
+| `plugins` | aus allen Quellen gesammelt (nur gezieltes Entfernen möglich) | JavaScript im Server |
+| `mcp.servers` | pro Name, spätere Quelle gewinnt | `type: local` startet beliebige Prozesse |
 | `agents` | pro Agent angewendet (Rechte, `system`, `model`, `disabled`) | Agenten umbauen |
 | `commands`, `skills`, `references`, `instructions` | aus allen Quellen gesammelt | Befehle/Fähigkeiten/Dateien einschleusen |
 | `shell`, `enterprise`, `default_agent`, `worktree` | letzte Quelle | Verhalten ändern |
 
 Diese Schlüssel lassen sich aus einer späteren Quelle nicht sperren. Deshalb
 übernimmt `start.mjs` aus der Admin-Config nur eine Allowlist (siehe
-Haupt-README, Kapitel 7); verworfene Teile stehen als WARNUNG im Log.
+`docs/betrieb.md`, „opencode-Config“); verworfene Teile stehen als WARNUNG im Log.
 Für die übrigen Schlüssel gilt:
 
 | Schlüssel | Zusammenführung | Folge |
@@ -98,8 +97,8 @@ Für die übrigen Schlüssel gilt:
 `{env:NAME}` ersetzt opencode textuell vor dem Parsen (auch in Schlüsseln,
 **ohne Escaping** – ein Wert mit `"` könnte neue Schlüssel erzeugen), fehlende
 Variablen werden zu `""`. Deshalb setzt `start.mjs` alle Platzhalter der
-Admin-Config selbst JSON-sicher ein (nur `LLM_*`, `OLLAMA_*`, `MCP_*`,
-`*_API_KEY`, `OPENCODE_MODEL`/`_VARIANT`) und gibt opencode eine Kopie ohne
+Admin-Config selbst JSON-sicher ein (nur `LLM_*`, `MCP_*`,
+`OPENCODE_MODEL`/`_VARIANT`; Zahlen wie `LLM_CONTEXT` als Zahl) und gibt opencode eine Kopie ohne
 Platzhalter. Provider-Pakete lädt opencode per `import`; ein `package`
 außerhalb der eingebauten Liste (`file://…` oder npm-Name) würde lokal
 importiert bzw. zur Laufzeit per npm installiert – `start.mjs` erlaubt nur
@@ -120,12 +119,13 @@ policy“ bzw. „Permission denied: external_directory“.
   geteilt mit dem Bot-Container (Docker-Name `captain_captain-tmp`), übersteht
   Neustarts. Ersetzt das frühere Volume `workspaces` (kann per
   `docker volume rm captain_workspaces` entfernt werden).
-- `opencode-data` → `/root/.local/share/opencode`: SQLite-DB (`opencode.db`) mit
+- `opencode-data` → `/home/captain/.local/share/opencode`: SQLite-DB (`opencode.db`) mit
   Sessions und Nachrichten.
 - `shared-leer` → `/shared` (schreibgeschützt), solange `CAPTAIN_SHARED_DIR`
   leer ist; sonst das Host-Verzeichnis.
 
-Der Server läuft als `root`; Dateien in `/tmp/captain` gehören also root.
+Im Test-Setup läuft der Server als root, im Betrieb als `CAPTAIN_UID:CAPTAIN_GID`
+(`HOME=/home/captain`; die beschreibbaren Verzeichnisse sind im Image `1777`).
 
 ## Auth
 
@@ -135,43 +135,20 @@ schreibt es ins Log. Andere Benutzernamen werden abgelehnt (401).
 
 ## Modell / Provider
 
-Default: **lokales Ollama auf dem Docker-Host**, Modell `ollama/gemma4:e4b`
-(`OPENCODE_MODEL` in `.env`; die Test-Admin-Config `config/opencode.test.jsonc`
-liest es über `"model": "{env:OPENCODE_MODEL}"`). Im Betrieb ist der Standard
-stattdessen der generische OpenAI-kompatible Provider `llm` (`LLM_BASE_URL`,
-`LLM_API_KEY`, `LLM_MODEL`; Paket `@ai-sdk/openai-compatible`, intern
-`@opencode/ai/providers/openai-compatible`), über den auch Ollama geht.
-Kein API-Key nötig.
+Einziger Provider ist der generische OpenAI-kompatible `llm` (Paket
+`@ai-sdk/openai-compatible`, intern `@opencode/ai/providers/openai-compatible`)
+aus `config/opencode.jsonc`: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`,
+`LLM_CONTEXT`, `LLM_OUTPUT` aus `.env`. Cloud-Provider sind abgeschaltet
+(`enabled_providers` = nur die Provider der Admin-Config, keine `*_API_KEY`
+im Container).
 
-- Endpoint: `OLLAMA_BASE_URL=http://host.docker.internal:11434/v1`
-  (`extra_hosts: host.docker.internal:host-gateway`). opencode v2 entdeckt alle
-  Ollama-Modelle automatisch über die native API am selben Präfix; Embedding-Modelle
-  werden ausgeblendet. Liste: `GET /api/model`.
-- Getestet: `gemma4:e4b` ruft Tools zuverlässig auf (write-Tool + Antwort).
-  `qwen3:4b` hat sich im Test beim Tool-Aufruf minutenlang im Reasoning verloren
-  (abgebrochen nach > 8 min), ist für einfache Antworten aber okay.
-- **Kontextlänge:** Ollama lädt Modelle mit seiner eigenen `num_ctx` (auf diesem Host
-  16384, sichtbar in `ollama ps` bzw. `GET http://localhost:11434/api/ps`), die
-  OpenAI-kompatible API kann sie pro Request nicht ändern. Der opencode-Systemprompt
-  inkl. Tools hat ~6k Token. Damit opencode rechtzeitig kompaktiert, ist das Limit in
-  `config/opencode.test.jsonc` für `qwen3:4b` und `gemma4:e4b` auf 16384 gesetzt. Wer mehr
-  Kontext will: auf dem Host `OLLAMA_CONTEXT_LENGTH` erhöhen (Ollama neu starten) und
-  die `limit.context`-Werte angleichen.
-- **Performance:** Ollama läuft auf diesem Host ohne GPU (`size_vram: 0`). Die erste
-  Antwort braucht dadurch ~2 min (Prompt-Verarbeitung von ~6k Token), Folgeprompts
-  profitieren vom Cache.
-
-### Alternativen (optional)
-
-- **opencode Zen Free** (Cloud, ohne Key, `apiKey: public`): z. B.
-  `OPENCODE_MODEL=opencode/big-pickle` – im Test Antwort inkl. Shell-Tool in ~4 s.
-  Weitere `*-free`-Modelle über `GET /api/model`. Nutzung/Datenweitergabe laut
-  opencode-Zen-Bedingungen; Verfügbarkeit ändert sich.
-- **API-Keys** in `.env` setzen (werden per `env_file` durchgereicht):
-  `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENCODE_API_KEY`
-  (Zen/Go), dann `OPENCODE_MODEL` z. B. `anthropic/claude-sonnet-4-5`.
-- Modell pro Session: im Body von `POST /api/session` `"model":{"providerID":"ollama","id":"qwen3:4b"}`
-  oder später `POST /api/session/{id}/model`.
+- Das Modell braucht Tool-Calling (vLLM: `--enable-auto-tool-choice
+  --tool-call-parser …`).
+- `LLM_CONTEXT` an die echte Kontextlänge anpassen, sonst kompaktiert opencode
+  zu spät. Der opencode-Systemprompt inkl. Tools hat ~6k Token.
+- Weitere Modelle unter `providers.llm.models` nur, wenn man per `!modell`
+  wechseln will. Modell pro Session: `"model":{"providerID":"llm","id":"…"}`
+  bei `POST /api/session` oder später `POST /api/session/{id}/model`.
 
 ## Berechtigungen (restriktiv, headless)
 
@@ -212,7 +189,7 @@ Ziel: **keine Tools außer Dateizugriff im eigenen Session-Verzeichnis**
   **relativem** Pfad (`notiz.txt`). Pfade außerhalb (auch `../x`) laufen vorher
   über `external_directory` mit Ressource `<verzeichnis>/*` und danach absolut.
   Die Agent-Defaults (erste Stufe) erlauben u. a. `external_directory` für
-  `/tmp/opencode/*` und `/root/.config/opencode/*` und `*` für alles; weil die
+  `/tmp/opencode/*` und `~/.config/opencode/*` und `*` für alles; weil die
   globale Regel `* * deny` **danach** kommt, sind diese Defaults vollständig
   aufgehoben (sichtbar in `GET /api/agent`: Defaults zuerst, Config-Regeln
   dahinter).
@@ -272,7 +249,7 @@ nicht; die Admin-Config darf weder `policies` noch `experimental` setzen.
 
 ### Geteiltes Verzeichnis (`CAPTAIN_SHARED_DIR`)
 
-Betrieb, Risiken und Admin-Schritte: Haupt-README, Kapitel 10. Technisch
+Betrieb, Risiken und Admin-Schritte: `docs/betrieb.md`, „Geteiltes Verzeichnis“. Technisch
 (aus dem Binary, `FileAccess.resolve`/`authorizeRead`, belegt durch
 `SharedIntegrationTest`):
 
@@ -292,8 +269,8 @@ Betrieb, Risiken und Admin-Schritte: Haupt-README, Kapitel 10. Technisch
   Sockets, Mountpoints laut `/proc/self/mountinfo` oder mit anderer
   Gerätenummer, Bare-Repos (`HEAD` + `objects/` + `refs/` außerhalb von
   `.git`), Zugangsdaten-Dateien, Verzeichnisse mit derselben Geräte-/Inode-Nummer
-  wie `/tmp/captain`, `/root/.local/share/opencode`, `/etc/captain`,
-  `/run/captain`, `/root/.config/opencode`) – mit Befund startet opencode nicht
+  wie `/tmp/captain`, `/home/captain/.local/share/opencode`, `/etc/captain`,
+  `/run/captain`, `/home/captain/.config/opencode`) – mit Befund startet opencode nicht
   bzw. wird beendet. Mehr als `CAPTAIN_SHARED_MAX_ENTRIES` (100 000) Einträge
   oder länger als `CAPTAIN_SHARED_MAX_SECONDS` (5 s) zählt ebenfalls als
   Befund. `/shared` muss außerdem schreibgeschützt sein.
@@ -330,8 +307,8 @@ mit mehreren Hostnamen):
   opencode `HTTP(S)_PROXY=http://127.0.0.1:<port>`, `NO_PROXY` nur Loopback; der
   Filter lässt nur Host:Port der Allowlist (bei Standardport auch 80/443
   desselben Hosts) und die Endpunkte aus der bereinigten Admin-Config
-  (`providers.*.settings.baseURL`, `mcp.servers.*.url`), `LLM_BASE_URL`,
-  `OLLAMA_BASE_URL` und Cloud-APIs mit gesetztem Key durch, sonst `403` und
+  (`providers.*.settings.baseURL`, `mcp.servers.*.url`), und
+  `LLM_BASE_URL` durch, sonst `403` und
   `[captain-egress] blockiert: host:port` im Log. Weiter geht es direkt bzw.
   über den ursprünglichen Proxy (`HTTP(S)_PROXY`/`NO_PROXY` aus
   `CAPTAIN_*`). Bun sendet bei HTTPS über Proxy nur `CONNECT host:port` (ohne
@@ -343,7 +320,7 @@ mit mehreren Hostnamen):
 ### Projekt-Config im Session-Verzeichnis (Sicherheit)
 
 opencode sucht ab `location.directory` aufwärts nach `opencode.json(c)`,
-`.opencode/opencode.json(c)`, `.opencode/plugins/*` (JS/TS, läuft **als root im
+`.opencode/opencode.json(c)`, `.opencode/plugins/*` (JS/TS, läuft **im
 Server**), `.claude/`, `.agents/` und `AGENTS.md`. Da die Session dort schreiben
 darf, wäre das ein Ausbruch. Nachgewiesen ohne Schutz: eine abgelegte
 `.opencode/plugins/x.ts` wird ausgeführt, eine abgelegte `opencode.jsonc` mit
@@ -377,7 +354,7 @@ Verbindung steht. Der Client stößt deshalb vor jedem Prompt
 mit `location.directory = /tmp/captain/<id>` und `id = <id>` (eigene
 Session-ID, Muster `^ses`, wird von v2 akzeptiert).
 
-### Nachweis (gemma4:e4b, Tool-Liste per Logging-Proxy vor Ollama mitgeschnitten)
+### Nachweis (gemma4:e4b, Tool-Liste per Logging-Proxy vor dem LLM mitgeschnitten)
 
 | Session | Tools, die das Modell sieht |
 |---|---|

@@ -12,7 +12,7 @@ services:
       - path: .env
         required: true
     environment:
-      # Geteiltes Verzeichnis (README: „Geteiltes Verzeichnis (nur lesen)“),
+      # Geteiltes Verzeichnis (docs/betrieb.md: „Geteiltes Verzeichnis“),
       # aus der Shell; leer = aus. Der Wert muss ein Linux-Pfad sein (start.mjs
       # prüft ihn: absolut, kein Laufwerksbuchstabe).
       CAPTAIN_SHARED_DIR: ${CAPTAIN_SHARED_DIR:-}

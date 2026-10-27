@@ -3,7 +3,7 @@
 
 # Build-Stufe: Gradle + JDK 21. Ein Proxy aus ~/.docker/config.json kommt als
 # Build-Argument an; gradle-proxy.sh uebersetzt ihn fuer Gradle
-# (README: „Hinter einem Proxy“).
+# (docs/betrieb.md: „Proxy und eigene CA“).
 FROM gradle:9.8.1-jdk21 AS build
 ARG HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy
 WORKDIR /src

@@ -12,7 +12,7 @@
 //
 // Erlaubt sind NUR: model, providers (eingebaute Pakete), mcp (nur
 // "type": "remote"), permissions (allow/deny), compaction – je Block mit
-// fester Schluessel-Liste (README, Kapitel 7).
+// fester Schluessel-Liste (docs/betrieb.md: „opencode-Config“).
 // NICHT VERWENDEN – hebelt die Sicherheit aus (das Startskript verwirft es mit
 // einer Warnung im Log): plugins, lokale MCP-Server ("type": "local"),
 // agents, default_agent, commands, skills, instructions, references, shell,

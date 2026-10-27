@@ -1,5 +1,5 @@
-# Captain im Betrieb gegen ein bestehendes Mattermost (README: „Betrieb mit
-# bestehendem Mattermost“). Nur opencode + Bot, kein Mattermost/Postgres.
+# Captain im Betrieb gegen ein bestehendes Mattermost (docs/betrieb.md).
+# Nur opencode + Bot, kein Mattermost/Postgres.
 #
 #   cp .env.example .env && chmod 600 .env     # ausfüllen
 #   docker compose -f compose.deploy.yml up -d --build
@@ -18,7 +18,7 @@
 # kollidiert.
 name: captain-prod
 
-# Proxy (README: „Hinter einem Proxy“). Bewusst eigene Variablennamen aus der
+# Proxy (docs/betrieb.md: „Proxy und eigene CA“). Bewusst eigene Variablennamen aus der
 # .env: ein HTTP_PROXY der Host-Shell oder aus ~/.docker/config.json zeigt oft
 # auf einen Namen, den nur der Host auflösen kann. Leer = kein Proxy. Die
 # interne Verbindung Bot → opencode geht nie über den Proxy.
@@ -98,11 +98,11 @@ services:
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_CONTEXT: ${LLM_CONTEXT:-32768}
       LLM_OUTPUT: ${LLM_OUTPUT:-4096}
-      # webfetch-Allowlist (README: „webfetch für bestimmte URLs erlauben“).
+      # webfetch-Allowlist (docs/betrieb.md: „webfetch“).
       # start.mjs macht daraus Policies und einen Egress-Filter; opencode
       # selbst bekommt die Variable nicht. Leer = webfetch aus.
       CAPTAIN_WEBFETCH_ALLOW: ${CAPTAIN_WEBFETCH_ALLOW:-}
-      # Geteiltes Verzeichnis (README: „Geteiltes Verzeichnis (nur lesen)“):
+      # Geteiltes Verzeichnis (docs/betrieb.md: „Geteiltes Verzeichnis“):
       # Host-Pfad, leer = aus. start.mjs prüft ihn (absolut, nicht / oder ein
       # Systemverzeichnis, unter CAPTAIN_HOME nur shared/…) und /shared
       # (schreibgeschützt, keine Symlinks), setzt die Policies und gibt opencode
