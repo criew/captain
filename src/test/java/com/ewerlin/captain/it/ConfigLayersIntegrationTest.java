@@ -26,7 +26,7 @@ import tools.jackson.databind.JsonNode;
  * Integrationstests: editierbare Admin-Config vs. feste Sicherheitsbasis.
  *
  * <p>Startet einen eigenen opencode-Container aus dem Image ({@code CAPTAIN_OC_IMAGE}, Default
- * {@code captain/opencode:2.1.2} aus {@code compose.deploy.yml}) mit einer Admin-Config unter
+ * {@code captain/opencode:2.2.0} aus {@code compose.deploy.yml}) mit einer Admin-Config unter
  * {@code /etc/captain} – wie im Betrieb aus {@code $CAPTAIN_HOME/config} – und zwei Hilfsservern im
  * Testprozess: {@link FakeLlm} als OpenAI-kompatibler Endpunkt hinter dem generischen Provider
  * {@code llm} der Vorlage und {@link McpTestServer} als Remote-MCP-Server {@code testmcp} mit den
@@ -112,6 +112,9 @@ class ConfigLayersIntegrationTest {
 
     /** Container starten. {@code raw}: ohne start.mjs (Gegenprobe), {@code files}: weitere Dateien in /etc/captain. */
     OpencodeContainer stack(String configText, Map<String, String> files, boolean raw, List<String> env) {
+        if (raw) { // opencode setzt {env:…} nur als Text ein; Zahlen macht sonst start.mjs daraus
+            configText = configText.replace("\"{env:LLM_CONTEXT}\"", "32768").replace("\"{env:LLM_OUTPUT}\"", "4096");
+        }
         Path conf = Integration.adminConf(tmp, configText, files);
         String name = "captain-layers-" + Integration.hex(8);
         List<String> args = new ArrayList<>();
@@ -123,6 +126,8 @@ class ConfigLayersIntegrationTest {
                 "-e", "LLM_BASE_URL=http://host.docker.internal:" + llm.port() + "/v1",
                 "-e", "LLM_API_KEY=" + API_KEY,
                 "-e", "LLM_MODEL=fake",
+                "-e", "LLM_CONTEXT=32768",
+                "-e", "LLM_OUTPUT=4096",
                 "-e", "OPENCODE_MODEL=llm/fake",
                 "-e", "MCP_TEST_URL=http://host.docker.internal:" + mcp.port() + "/mcp",
                 "-e", "MCP_TEST_TOKEN=" + MCP_TOKEN));

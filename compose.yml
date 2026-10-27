@@ -16,7 +16,7 @@ services:
       # MM_BOT_TOKEN u. a. (von infra/mattermost/seed.py erzeugt)
       - path: infra/mattermost/generated.env
         required: true
-      # OPENCODE_SERVER_PASSWORD, OPENCODE_MODEL
+      # OPENCODE_SERVER_PASSWORD, OPENCODE_MODEL, ggf. CAPTAIN_API_TOKEN
       - path: infra/opencode/.env
         required: true
     environment:
@@ -27,6 +27,9 @@ services:
       DATA_DIR: /data
       # nur für den Systemhinweis (opencode liest /shared, der Bot nicht)
       CAPTAIN_SHARED_DIR: ${CAPTAIN_SHARED_DIR:-}
+    # REST-Eingabekanal (aktiv mit CAPTAIN_API_TOKEN in infra/opencode/.env)
+    ports:
+      - "127.0.0.1:8090:8090"
     volumes:
       # Session-Verzeichnisse, gleicher Pfad wie im opencode-Container
       - captain-tmp:/tmp/captain

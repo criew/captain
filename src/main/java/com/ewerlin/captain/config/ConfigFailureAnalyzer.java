@@ -9,6 +9,6 @@ public class ConfigFailureAnalyzer extends AbstractFailureAnalyzer<ConfigExcepti
     @Override
     protected FailureAnalysis analyze(Throwable rootFailure, ConfigException cause) {
         return new FailureAnalysis("[Captain] " + cause.getMessage(),
-                "Umgebungsvariablen bzw. .env prüfen (README: „Konfiguration“).", cause);
+                "Umgebungsvariablen bzw. .env prüfen (.env.example, docs/betrieb.md).", cause);
     }
 }

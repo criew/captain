@@ -31,6 +31,7 @@ import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.ewerlin.captain.api.Conversations;
 import com.ewerlin.captain.config.CaptainConfig;
 import com.ewerlin.captain.mattermost.AttachmentTooLargeException;
 import com.ewerlin.captain.mattermost.MattermostApi;
@@ -55,7 +56,7 @@ import tools.jackson.databind.node.ObjectNode;
  *
  * <h2>Ablauf</h2>
  * {@code MattermostApi.listen} ruft {@link #onPost} im WebSocket-Thread auf. Dort wird nur gefiltert
- * (Bots/Webhooks, Allowlist, Duplikate, nicht an Captain gerichtet – siehe {@link Routing}) und der
+ * (Bots/Webhooks, Duplikate, nicht an Captain gerichtet – siehe {@link Routing}) und der
  * Post an eine <b>Spur</b> pro Session-Key übergeben; die eigentliche Arbeit läuft in einem
  * Thread-Pool.
  *
@@ -81,8 +82,13 @@ import tools.jackson.databind.node.ObjectNode;
  * Nach dem Start und nach jedem Reconnect ohne Replay holt {@link #catchUp} verpasste Posts per REST
  * nach (Cursor pro Kanal, {@link CursorStore}); Live-Posts werden solange gepuffert. Details in
  * {@link Catchup}.
+ *
+ * <h2>REST-Eingabekanal</h2>
+ * {@link #ask} beantwortet eine Nachricht ohne Mattermost: Die Conversation-ID des Aufrufers wird
+ * zum Session-Key {@code rest:<id>}, gleiche ID = gleiche opencode-Session. Anfragen derselben ID
+ * laufen nacheinander (fairer {@link KeyLocks}-Lock), siehe {@link com.ewerlin.captain.api.ApiServer}.
  */
-public class Bot {
+public class Bot implements Conversations {
 
     private static final Logger log = LoggerFactory.getLogger(Bot.class);
 
@@ -103,6 +109,24 @@ public class Bot {
     public static final double STOP_GRACE = 10.0;
     /** Sekunden für alle opencode-Abbrüche beim Beenden zusammen. */
     static final double ABORT_TIMEOUT = 3.0;
+    /** Mattermost-Nutzer so lange (Sekunden) und so viele zwischenspeichern. */
+    static final double USER_TTL = 600.0;
+    static final int USERS_MAX = 2000;
+    /** Systemanweisung {@code captain-kanal}: wie im jeweiligen Eingabekanal antworten. */
+    static final String MATTERMOST_NOTE = """
+            # Kanal: Mattermost
+            Du chattest über Mattermost mit Menschen.
+            - Formatiere für Mattermost-Markdown: `**fett**`, `_kursiv_`, `` `Code` ``, Codeblöcke mit \
+            ```` ``` ````, Listen mit `-`, Tabellen nur wenn sie wirklich helfen. Keine HTML-Tags.
+            - In Gruppenchats kommen Nachrichten als `Name: Text`. Sprich Personen bei Bedarf mit Namen an.
+            - Rückfragen stellst du bei Bedarf einfach als normale Chat-Antwort.""";
+    static final String API_NOTE = """
+            # Kanal: REST-Schnittstelle
+            Die Nachrichten kommen von einer Automatisierung (z. B. einem Webhook), nicht aus einem Chat; \
+            deine Antwort verarbeitet sie weiter (z. B. als Kommentar in einem Merge Request).
+            - Antworte direkt mit dem Ergebnis, ohne Rückfragen, Begrüßung oder Chat-Floskeln.
+            - Formatiere als gewöhnliches Markdown (CommonMark/GitLab), keine HTML-Tags.
+            - Kommt eine Nachricht als `Name: Text`, stammt sie von dieser Person bzw. diesem System.""";
 
     static final String HELP = """
             **Captain** – ich reiche Nachrichten an opencode weiter und antworte hier.
@@ -149,8 +173,10 @@ public class Bot {
     final CursorStore cursors;
     final double promptTimeout;
     private final ThreadPoolExecutor pool;
-    /** Nebenaufgaben (Reaktionen, Sofort-Befehle); in Tests durch einen FIFO-Executor ersetzbar. */
+    /** Nebenaufgaben (Reaktionen); in Tests durch einen FIFO-Executor ersetzbar. */
     ExecutorService side;
+    /** Sofort-Befehle (!modell, !stopp, …) – eigener Pool, damit ein langsamer Befehl keine Reaktionen aufhält. */
+    ExecutorService commands;
     /** Nachschlagen per REST außerhalb des WebSocket-Threads, in Reihenfolge. */
     final ExecutorService lookup;
     private final KeyLocks locks = new KeyLocks();
@@ -160,6 +186,11 @@ public class Bot {
     final Set<String> active = new HashSet<>(); // Keys mit laufendem Abarbeiter
     private final Set<String> noInstructions = new HashSet<>(); // Sessions ohne Systemanweisungen (API-Fehler)
     private final Map<String, String> running = new ConcurrentHashMap<>(); // Key → Session der laufenden Antwort
+    private final Set<String> inflight = new HashSet<>(); // Keys, deren Bündel gerade beantwortet wird
+    private final Set<String> cancelled = new HashSet<>(); // !stopp, bevor der Prompt lief (Anhänge, Session)
+    private record CachedUser(JsonNode user, double expires) {
+    }
+    private final LinkedHashMap<String, CachedUser> users = new LinkedHashMap<>(); // Nutzer-Cache (LRU)
     private final Set<String> queued = new HashSet<>(); // Post-IDs mit ⏳-Reaktion
     private final LinkedHashMap<String, Boolean> seen = new LinkedHashMap<>();
     private final Map<String, String> channels = new HashMap<>(); // aktiver Key → Kanal (für !stopp im Kanal)
@@ -205,6 +236,7 @@ public class Bot {
         this.promptTimeout = promptTimeout;
         this.pool = executor(workers, "captain-session");
         this.side = executor(2, "captain-side");
+        this.commands = executor(4, "captain-command");
         this.lookup = executor(1, "captain-lookup");
         this.startedMs = clock.getAsLong();
     }
@@ -332,11 +364,24 @@ public class Bot {
         cursors.close(); // vor allem Weiteren: späteres „erledigt“ zählt nicht
         mm.close();
         abortAll(new ArrayList<>(running.values()));
-        for (ExecutorService executor : List.of(pool, side, lookup)) {
+        for (ExecutorService executor : List.of(pool, side, commands, lookup)) {
             if (executor instanceof ThreadPoolExecutor tpe) {
                 tpe.getQueue().clear(); // Wartendes verwerfen, Laufendes zu Ende bringen
             }
             executor.shutdown();
+        }
+    }
+
+    /** Nach {@link #stop}: wartet höchstens {@code timeout} s, bis alle Pools leer sind (Tests). */
+    void awaitStopped(double timeout) {
+        long deadline = System.nanoTime() + (long) (timeout * 1e9);
+        for (ExecutorService executor : List.of(pool, side, commands, lookup)) {
+            try {
+                executor.awaitTermination(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 
@@ -693,10 +738,6 @@ public class Bot {
             log.debug("Post {} doppelt zugestellt – ignoriert", post.id());
             return;
         }
-        if (!cfg.isAllowed(post.senderName())) {
-            log.info("Post von @{} ignoriert (nicht in ALLOWED_USERS)", post.senderName());
-            return;
-        }
         if (post.message().strip().isEmpty() && post.fileIds().isEmpty()) {
             return;
         }
@@ -757,7 +798,7 @@ public class Bot {
         Command cmd = parseCommand(text(post));
         boolean top = !post.channelType().equals("D") && post.rootId().isEmpty();
         if (cmd != null && (!QUEUED_COMMANDS.contains(cmd.name()) || top)) {
-            submit(side, "commandNow", () -> commandNow(key, post, cmd));
+            submit(commands, "commandNow", () -> commandNow(key, post, cmd));
             return true;
         }
         enqueue(key, post);
@@ -899,65 +940,58 @@ public class Bot {
     private void drain(String key) {
         try (KeyLocks.Held held = locks.lock(key)) {
             while (true) {
-                List<Post> items;
+                List<Post> batch;
                 synchronized (mutex) {
-                    Deque<Post> lane = lanes.get(key);
-                    items = lane == null ? List.of() : new ArrayList<>(lane);
-                    if (lane != null) {
-                        lane.clear();
+                    if (stopping.isSet()) { // Rest bleibt offen → nächster Start
+                        active.remove(key);
+                        return;
                     }
-                    if (items.isEmpty()) {
+                    // Bündel erst jetzt aus der Spur nehmen: Bis dahin verwirft !stopp es noch
+                    batch = nextBatch(lanes.get(key));
+                    if (batch.isEmpty()) {
                         active.remove(key);
                         lanes.remove(key);
                         channels.remove(key);
                         return;
                     }
+                    inflight.add(key);
                 }
-                for (List<Post> batch : batches(items)) {
-                    if (stopping.isSet()) { // Rest bleibt offen → nächster Start
-                        synchronized (mutex) {
-                            active.remove(key);
-                        }
-                        return;
+                try {
+                    unmarkQueued(batch);
+                    Command cmd = parseCommand(text(batch.getFirst()));
+                    if (cmd != null && QUEUED_COMMANDS.contains(cmd.name())) {
+                        command(key, batch.getFirst(), cmd);
+                    } else {
+                        answer(key, batch);
                     }
-                    try {
-                        unmarkQueued(batch);
-                        Command cmd = parseCommand(text(batch.getFirst()));
-                        if (cmd != null && QUEUED_COMMANDS.contains(cmd.name())) {
-                            command(key, batch.getFirst(), cmd);
-                        } else {
-                            answer(key, batch);
-                        }
-                    } catch (RuntimeException e) { // Spur darf nicht sterben
-                        log.error("{}: Verarbeitung fehlgeschlagen", key, e);
-                        reply(batch.getLast(), "⚠️ Interner Fehler: " + e.getMessage(), false,
-                                batch.stream().map(Post::id).toList());
-                    } finally {
-                        // Bündel: alle erst nach der fertigen Gesamtantwort
-                        batch.forEach(p -> done(p, true));
+                } catch (RuntimeException e) { // Spur darf nicht sterben
+                    log.error("{}: Verarbeitung fehlgeschlagen", key, e);
+                    reply(batch.getLast(), "⚠️ Interner Fehler: " + e.getMessage(), false,
+                            batch.stream().map(Post::id).toList());
+                } finally {
+                    synchronized (mutex) {
+                        inflight.remove(key);
+                        cancelled.remove(key);
                     }
+                    // Bündel: alle erst nach der fertigen Gesamtantwort
+                    batch.forEach(p -> done(p, true));
                 }
             }
         }
     }
 
-    /** Aufeinanderfolgende Nachrichten bündeln; {@code !neu} steht allein. */
-    private List<List<Post>> batches(List<Post> items) {
-        List<List<Post>> out = new ArrayList<>();
-        List<Post> current = new ArrayList<>();
-        for (Post post : items) {
-            if (parseCommand(text(post)) != null) {
-                if (!current.isEmpty()) {
-                    out.add(current);
-                    current = new ArrayList<>();
-                }
-                out.add(List.of(post));
-            } else {
-                current.add(post);
+    /** Nächstes Bündel vorne aus der Spur: ein Befehl allein oder alle Nachrichten bis zum nächsten Befehl. */
+    private List<Post> nextBatch(Deque<Post> lane) {
+        List<Post> out = new ArrayList<>();
+        while (lane != null && !lane.isEmpty()) {
+            boolean cmd = parseCommand(text(lane.peekFirst())) != null;
+            if (cmd && !out.isEmpty()) {
+                break;
             }
-        }
-        if (!current.isEmpty()) {
-            out.add(current);
+            out.add(lane.pollFirst());
+            if (cmd) {
+                break;
+            }
         }
         return out;
     }
@@ -1049,7 +1083,7 @@ public class Bot {
         sid = newSessionId.get();
         directory = sessionDir(sid);
         mkdirs(directory);
-        String created = oc.createSession(directory, "Mattermost " + key,
+        String created = oc.createSession(directory, (key.startsWith(SessionKeys.REST) ? "REST " : "Mattermost ") + key,
                 SessionPermissions.of(directory, cfg.webfetchAllow(), cfg.shared()), sid);
         if (!created.equals(sid)) {
             log.warn("{}: opencode vergab {} statt {}", key, created, sid);
@@ -1073,13 +1107,16 @@ public class Bot {
         }
     }
 
-    private Map<String, String> instructions(String directory) {
-        return SessionKeys.sessionInstructions(cfg.systemPrompt(), directory, cfg.webfetchAllow(), cfg.shared());
+    private Map<String, String> instructions(String key, String directory) {
+        Map<String, String> entries = SessionKeys.sessionInstructions(cfg.systemPrompt(), directory, cfg.webfetchAllow(),
+                cfg.shared());
+        entries.put("captain-kanal", key.startsWith(SessionKeys.REST) ? API_NOTE : MATTERMOST_NOTE);
+        return entries;
     }
 
     private boolean setInstructions(String key, String sid, String directory) {
         try {
-            oc.setInstructions(sid, instructions(directory));
+            oc.setInstructions(sid, instructions(key, directory));
             return true;
         } catch (OpencodeException e) { // Permissions greifen trotzdem
             log.warn("{}: Systemanweisungen für {} nicht gesetzt: {}", key, sid, e.getMessage());
@@ -1107,13 +1144,27 @@ public class Bot {
             log.info("{}: Systemanweisungen für {} nachgetragen", key, sid);
             return "";
         }
-        String body = String.join("\n\n", instructions(directory).values());
+        String body = String.join("\n\n", instructions(key, directory).values());
         return "[Systemhinweise für diese Unterhaltung]\n" + body + "\n[Ende der Systemhinweise]\n\n";
     }
 
+    /** Mattermost-Nutzer, {@link #USER_TTL} s zwischengespeichert (Bot-Prüfung, Anzeigenamen). */
     private JsonNode user(String userId) {
+        double now = Clock.monotonic();
+        synchronized (users) {
+            CachedUser cached = users.get(userId);
+            if (cached != null && cached.expires() > now) {
+                return cached.user();
+            }
+        }
         try {
-            return mm.getUser(userId);
+            JsonNode u = mm.getUser(userId);
+            synchronized (users) {
+                users.remove(userId);
+                users.put(userId, new CachedUser(u, now + USER_TTL));
+                trim(users, USERS_MAX);
+            }
+            return u;
         } catch (RuntimeException e) {
             log.warn("Nutzer {} nicht ladbar: {}", userId, e.toString());
             return Json.object();
@@ -1233,7 +1284,7 @@ public class Bot {
         if (entry != null && entry.get("model") != null && !entry.get("model").isEmpty()) {
             return new Settings(entry.get("model"), entry.get("variant"), "hier");
         }
-        String channel = "ch:" + post.channelId();
+        String channel = SessionKeys.MATTER_CHANNEL + post.channelId();
         if (!post.channelType().equals("D") && !key.equals(channel)) {
             entry = store.get(channel);
             if (entry != null && entry.get("model") != null && !entry.get("model").isEmpty()) {
@@ -1348,7 +1399,95 @@ public class Bot {
         String prompt = preface(key, s.sid(), s.directory(), s.created()) + text;
         PromptOptions options = new PromptOptions(s.directory(), base.model(), base.variant(),
                 parts.files().isEmpty() ? null : parts.files(), base.onDelta(), base.onStatus(), base.idleTimeout());
+        synchronized (mutex) {
+            if (cancelled.remove(key)) { // !stopp, während Anhänge luden bzw. die Session entstand
+                throw new PromptInterruptedException("vor dem Start abgebrochen");
+            }
+        }
         return oc.prompt(s.sid(), prompt, options);
+    }
+
+    // -- REST-Eingabekanal ----------------------------------------------------
+
+    /**
+     * Beantwortet {@code text} in der Unterhaltung {@code conversation} (Session-Key
+     * {@code rest:<conversation>}); blockiert bis zur fertigen Antwort.
+     *
+     * <p>Gleiche ID = gleiche opencode-Session, auch über Neustarts (Session-Store). Anfragen
+     * derselben ID laufen nacheinander. Modell: wie für den Key gesetzt, sonst Standard.
+     *
+     * @param sender Name, der vor die Nachricht gesetzt wird ({@code Name: Text}); {@code null} = keiner
+     * @throws PromptInterruptedException bei {@link #forget} oder Beenden während der Antwort
+     */
+    @Override
+    public Answer ask(String conversation, String text, String sender) {
+        String key = SessionKeys.REST + conversation;
+        String prompt = sender == null || sender.isBlank() ? text : sender.strip() + ": " + text;
+        try (KeyLocks.Held held = locks.lock(key)) {
+            synchronized (mutex) {
+                if (stopping.isSet()) {
+                    throw new PromptInterruptedException("Captain wird beendet");
+                }
+                active.add(key); // waitQuiet wartet beim Beenden auch hierauf
+            }
+            try {
+                Map<String, String> entry = store.get(key);
+                boolean own = entry != null && entry.get("model") != null && !entry.get("model").isEmpty();
+                PromptOptions base = PromptOptions.in(null)
+                        .model(own ? entry.get("model") : cfg.opencodeModel(), own ? entry.get("variant") : cfg.opencodeVariant())
+                        .onDelta(t -> { }).onStatus(t -> { })
+                        .idleTimeout(promptTimeout);
+                double started = Clock.monotonic();
+                Answer answer;
+                try {
+                    answer = askOnce(key, prompt, base, false);
+                } catch (SessionGoneException e) {
+                    log.warn("{}: Session {} verschwunden – neue Session, neuer Versuch", key, running.get(key));
+                    answer = askOnce(key, prompt, base, true);
+                }
+                log.info("{}: REST-Antwort fertig nach {} s ({} Zeichen)", key,
+                        String.format(Locale.ROOT, "%.1f", Clock.monotonic() - started), answer.text().length());
+                return answer;
+            } finally {
+                running.remove(key);
+                synchronized (mutex) {
+                    active.remove(key);
+                }
+            }
+        }
+    }
+
+    private Answer askOnce(String key, String prompt, PromptOptions base, boolean fresh) {
+        SessionRef s = session(key, fresh);
+        running.put(key, s.sid());
+        log.info("{}: REST-Prompt ({} Zeichen)", key, prompt.length());
+        String text = preface(key, s.sid(), s.directory(), s.created()) + prompt;
+        PromptOptions options = new PromptOptions(s.directory(), base.model(), base.variant(), null,
+                base.onDelta(), base.onStatus(), base.idleTimeout());
+        return new Answer(s.sid(), oc.prompt(s.sid(), text, options));
+    }
+
+    /**
+     * Vergisst die REST-Unterhaltung {@code conversation} (wie {@code !neu}): bricht eine laufende
+     * Antwort ab, löscht Session-Eintrag und -Verzeichnis. {@code false} = gab es nicht.
+     */
+    @Override
+    public boolean forget(String conversation) {
+        String key = SessionKeys.REST + conversation;
+        String sid = running.get(key);
+        if (sid != null) {
+            oc.abort(sid);
+        }
+        try (KeyLocks.Held held = locks.lock(key)) {
+            Map<String, String> entry = store.get(key);
+            if (entry == null) {
+                return false;
+            }
+            store.reset(key);
+            removeDir(entry.get("directory"));
+            log.info("{}: Unterhaltung vergessen", key);
+            return true;
+        }
     }
 
     // -- Befehle -------------------------------------------------------------
@@ -1419,9 +1558,19 @@ public class Bot {
         }
         int aborted = 0;
         for (String key : keys) {
+            boolean busy;
+            synchronized (mutex) {
+                // läuft ein Bündel (auch noch vor dem Prompt), bricht es ab – sonst nichts merken
+                busy = inflight.contains(key);
+                if (busy) {
+                    cancelled.add(key);
+                }
+            }
             String sid = running.get(key);
             if (sid != null) {
                 oc.abort(sid);
+            }
+            if (busy || sid != null) {
                 aborted++;
             }
         }
@@ -1492,7 +1641,7 @@ public class Bot {
         }
         store.setModel(key, model, variant);
         String suffix = variant != null ? ", Variante `" + variant + "`" : "";
-        String where = key.startsWith("ch:") ? "diesen Kanal (neue Threads)" : "diesen Chat";
+        String where = key.startsWith(SessionKeys.MATTER_CHANNEL) ? "diesen Kanal (neue Threads)" : "diesen Chat";
         reply(post, "✅ Modell für " + where + ": `" + model + "`" + suffix);
     }
 }

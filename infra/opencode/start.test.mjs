@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { buildConfig, enabledProviders, environment, FIXED, NO_PROVIDER, PACKAGES, parseJsonc, refAllowed, resolveEnv, sanitize } from "./start.mjs";
 
 const TEMPLATE = fs.readFileSync(new URL("./config/opencode.jsonc", import.meta.url), "utf8");
-const ENV = { LLM_BASE_URL: "http://llm/v1", LLM_API_KEY: "k", LLM_MODEL: "m1", OPENCODE_MODEL: "llm/m1",
+const ENV = { LLM_BASE_URL: "http://llm/v1", LLM_API_KEY: "k", LLM_MODEL: "m1", LLM_CONTEXT: "131072", LLM_OUTPUT: "16384", OPENCODE_MODEL: "llm/m1",
   MM_BOT_TOKEN: "BOT-SECRET", OPENCODE_SERVER_PASSWORD: "PW-SECRET", MCP_X_TOKEN: "mcp-t" };
 
 function build(text, env = ENV) {
@@ -28,7 +28,12 @@ test("Vorlage ergibt gueltige, platzhalterfreie Config", () => {
   assert.equal(clean.model, "llm/m1");
   assert.equal(clean.providers.llm.settings.baseURL, "http://llm/v1");
   assert.deepEqual(Object.keys(clean.providers.llm.models), ["m1"]);
+  assert.deepEqual(clean.providers.llm.models.m1.limit, { context: 131072, output: 16384 }); // Zahlen, kein Text
   assert.ok(!/\{(env|file):/.test(json));
+  // ungueltige bzw. fehlende Limits: verworfen (Warnung), Rest bleibt
+  const bad = build(TEMPLATE, { ...ENV, LLM_CONTEXT: "viel", LLM_OUTPUT: "" });
+  assert.deepEqual(bad.clean.providers.llm.models.m1.limit, {});
+  assert.equal(bad.warnings.length, 2);
 });
 
 test("Injektion ueber .env-Wert mit Anfuehrungszeichen bleibt ein String", () => {
@@ -43,10 +48,11 @@ test("Injektion ueber .env-Wert mit Anfuehrungszeichen bleibt ein String", () =>
 });
 
 test("verbotene Variablen werden nie eingesetzt", () => {
-  for (const name of ["MM_BOT_TOKEN", "OPENCODE_SERVER_PASSWORD", "CAPTAIN_SYSTEM_PROMPT", "HOME", "PATH", "MM_API_KEY"]) {
+  for (const name of ["MM_BOT_TOKEN", "OPENCODE_SERVER_PASSWORD", "CAPTAIN_SYSTEM_PROMPT", "HOME", "PATH", "MM_API_KEY",
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_BASE_URL"]) {
     assert.equal(refAllowed(name), false, name);
   }
-  for (const name of ["LLM_MODEL", "MCP_X_TOKEN", "ANTHROPIC_API_KEY", "OLLAMA_BASE_URL", "OPENCODE_MODEL"]) {
+  for (const name of ["LLM_MODEL", "LLM_API_KEY", "MCP_X_TOKEN", "OPENCODE_MODEL"]) {
     assert.equal(refAllowed(name), true, name);
   }
   const text = `{ "mcp": { "servers": {
@@ -104,6 +110,8 @@ test("Provider: nur eingebaute Pakete, Unterbaeume per Allowlist", () => {
   assert.deepEqual(clean.providers.c, { package: "@ai-sdk/openai-compatible", settings: { baseURL: "u", apiKey: "k" },
     models: { m: { name: "M", limit: { context: 1 } } } });
   assert.ok(PACKAGES.has("@opencode/ai/providers/openai-compatible"));
+  // keine Cloud-Provider-Pakete
+  assert.ok(!PACKAGES.has("@opencode/ai/providers/anthropic") && !PACKAGES.has("@opencode/ai/providers/openrouter"));
 });
 
 test("permissions: nur allow/deny mit genau drei Feldern", () => {
@@ -128,7 +136,8 @@ test("Umgebung fuer opencode: Allowlist, feste Schalter", () => {
   const env = environment({ ...ENV, PATH: "/bin", ANTHROPIC_API_KEY: "a", MM_API_KEY: "x", LD_PRELOAD: "/x.so",
     NODE_OPTIONS: "--require x", XDG_CONFIG_HOME: "/tmp", OPENCODE_CONFIG_DIR: "/tmp", OPENCODE_CONFIG: "/x",
     OPENCODE_CONFIG_CONTENT: "{}", OPENCODE_DISABLE_PROJECT_CONFIG: "0" });
-  assert.deepEqual(Object.keys(env).sort(), ["ANTHROPIC_API_KEY", "LLM_API_KEY", "OPENCODE_SERVER_PASSWORD", "PATH", ...Object.keys(FIXED)].sort());
+  // Keys (auch LLM_API_KEY) setzt das Startskript in die Config ein – opencode bekommt keine
+  assert.deepEqual(Object.keys(env).sort(), ["OPENCODE_SERVER_PASSWORD", "PATH", ...Object.keys(FIXED)].sort());
   assert.equal(env.OPENCODE_CONFIG, "/run/captain/opencode.json");
   assert.equal(env.OPENCODE_DISABLE_PROJECT_CONFIG, "1");
   assert.equal(JSON.parse(env.OPENCODE_CONFIG_CONTENT).share, "disabled");
@@ -137,13 +146,12 @@ test("Umgebung fuer opencode: Allowlist, feste Schalter", () => {
   assert.deepEqual(JSON.parse(env.OPENCODE_CONFIG_CONTENT).enabled_providers, [NO_PROVIDER]);
 });
 
-test("Provider: nur Admin-Config plus Cloud-Provider mit gesetztem Key", () => {
-  const clean = { providers: { llm: {}, ollama: {} } };
-  assert.deepEqual(enabledProviders(clean, {}), ["llm", "ollama"]);
-  assert.deepEqual(enabledProviders(clean, { ANTHROPIC_API_KEY: "a", OPENAI_API_KEY: "" }), ["anthropic", "llm", "ollama"]);
-  assert.deepEqual(enabledProviders({}, {}), [NO_PROVIDER]);
-  // eingebauter Zen-Provider "opencode" nie automatisch
-  assert.ok(!enabledProviders(clean, { OPENROUTER_API_KEY: "r" }).includes("opencode"));
+test("Provider: nur die der Admin-Config", () => {
+  const clean = { providers: { llm: {}, zweit: {} } };
+  assert.deepEqual(enabledProviders(clean), ["llm", "zweit"]);
+  assert.deepEqual(enabledProviders({}), [NO_PROVIDER]);
+  // eingebaute Cloud-Provider (auch Zen "opencode") nie
+  assert.ok(!enabledProviders(clean).includes("opencode"));
   const env = environment({}, ["llm"]);
   assert.deepEqual(JSON.parse(env.OPENCODE_CONFIG_CONTENT).enabled_providers, ["llm"]);
   assert.equal(JSON.parse(env.OPENCODE_CONFIG_CONTENT).share, "disabled");

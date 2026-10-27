@@ -59,14 +59,16 @@ final class BotTestSupport {
         bot.newSessionId = () -> "ses_" + ids.incrementAndGet();
     }
 
-    /** Nebenaufgaben in einem FIFO-Thread → {@link #waitIdle} kann sie abwarten. */
+    /** Nebenaufgaben und Sofort-Befehle in einem FIFO-Thread → {@link #waitIdle} kann sie abwarten. */
     static void fifoSide(Bot bot) {
         bot.side.shutdown();
+        bot.commands.shutdown();
         bot.side = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "test-side");
             t.setDaemon(true);
             return t;
         });
+        bot.commands = bot.side;
     }
 
     /** Wartet, bis Nachschlagen, Abarbeiter und Nebenaufgaben fertig sind. */

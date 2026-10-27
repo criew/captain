@@ -123,21 +123,21 @@ class RoutingTest {
     void replyRootAndKeys() {
         Post dm = p("hallo", "D", "", "u1", false, "d1");
         assertThat(Routing.replyRoot(dm)).isNull();
-        assertThat(Routing.conversationKey(dm)).isEqualTo("dm:c1");
-        assertThat(Routing.settingsKey(dm)).isEqualTo("dm:c1");
+        assertThat(Routing.conversationKey(dm)).isEqualTo("matter-dm:c1");
+        assertThat(Routing.settingsKey(dm)).isEqualTo("matter-dm:c1");
         Post dmThread = p("hallo", "D", "r0");
         assertThat(Routing.replyRoot(dmThread)).isEqualTo("r0");
-        assertThat(Routing.conversationKey(dmThread)).isEqualTo("th:r0");
+        assertThat(Routing.conversationKey(dmThread)).isEqualTo("matter-th:r0");
 
         Post top = p("@captain", "O", "", "u1", false, "t1");
         assertThat(Routing.replyRoot(top)).isEqualTo("t1"); // Thread unter dem erwähnenden Post
-        assertThat(Routing.conversationKey(top)).isEqualTo("th:t1");
-        assertThat(Routing.settingsKey(top)).isEqualTo("ch:c1"); // !modell oben gilt für den Kanal
+        assertThat(Routing.conversationKey(top)).isEqualTo("matter-th:t1");
+        assertThat(Routing.settingsKey(top)).isEqualTo("matter-ch:c1"); // !modell oben gilt für den Kanal
 
         Post reply = p("weiter", "G", "t1", "u1", false, "t2");
         assertThat(Routing.replyRoot(reply)).isEqualTo("t1");
-        assertThat(Routing.conversationKey(reply)).isEqualTo("th:t1");
-        assertThat(Routing.settingsKey(reply)).isEqualTo("th:t1");
+        assertThat(Routing.conversationKey(reply)).isEqualTo("matter-th:t1");
+        assertThat(Routing.settingsKey(reply)).isEqualTo("matter-th:t1");
     }
 
     // ---------------------------------------------------------------- Vorgeschichte

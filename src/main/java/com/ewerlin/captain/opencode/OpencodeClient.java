@@ -33,7 +33,7 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * opencode-Client für den Server-Modus ({@code opencode serve}, API v2).
  *
- * <p>Getestet gegen {@code @opencode/cli@2.1.2} (zuvor 2.0.20). REST über Springs {@code RestClient}, Antworten
+ * <p>Getestet gegen {@code @opencode/cli@2.2.0} (zuvor 2.0.20). REST über Springs {@code RestClient}, Antworten
  * kommen in {@code {"data": ...}} gekapselt. Live-Fortschritt kommt über den Event-Stream
  * {@code GET /api/event} (SSE, nur {@code data:}-Zeilen, alle Sessions gemischt).
  *
@@ -351,7 +351,7 @@ public class OpencodeClient implements OpencodeApi, AutoCloseable {
     /**
      * Wartet, bis die MCP-Server für {@code directory} verbunden sind.
      *
-     * <p>opencode (2.0.20–2.1.2) verbindet MCP-Server pro Location (Verzeichnis) erst beim ersten Zugriff und
+     * <p>opencode (2.0.20–2.2.0) verbindet MCP-Server pro Location (Verzeichnis) erst beim ersten Zugriff und
      * stellt die Tool-Liste eines Prompts zusammen, bevor die Verbindung steht – ohne diesen Schritt
      * fehlen die MCP-Tools im ersten Prompt jeder neuen Session. {@code GET /api/mcp} stößt die
      * Verbindung an; gewartet wird, solange ein Server {@code pending} ist (höchstens

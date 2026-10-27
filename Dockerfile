@@ -3,7 +3,7 @@
 
 # Build-Stufe: Gradle + JDK 21. Ein Proxy aus ~/.docker/config.json kommt als
 # Build-Argument an; gradle-proxy.sh uebersetzt ihn fuer Gradle
-# (README: „Hinter einem Proxy“).
+# (docs/betrieb.md: „Proxy und eigene CA“).
 FROM gradle:9.8.1-jdk21 AS build
 ARG HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy
 WORKDIR /src
@@ -20,10 +20,12 @@ FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /src/build/libs/captain.jar ./captain.jar
 
-# Laeuft bewusst als root: opencode (ebenfalls root) und der Bot teilen das
-# Volume /tmp/captain; der Bot legt dort die Session-Verzeichnisse an.
+# Laeuft im Betrieb als CAPTAIN_UID:CAPTAIN_GID (compose.deploy.yml), dieselbe
+# UID wie opencode: beide teilen /tmp/captain, der Bot legt dort die
+# Session-Verzeichnisse an. REST-Eingabekanal (mit CAPTAIN_API_TOKEN): Port 8090.
 ENV SESSIONS_DIR=/tmp/captain \
     DATA_DIR=/data
 VOLUME ["/data"]
+EXPOSE 8090
 
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/captain.jar"]

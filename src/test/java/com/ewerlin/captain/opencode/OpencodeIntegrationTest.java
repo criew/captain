@@ -28,7 +28,7 @@ import com.ewerlin.captain.it.Integration;
  * existiert immer, der Client legt keine Verzeichnisse an).
  *
  * <p>Tool-Aufrufe (Datei schreiben, Shell/Web gesperrt) prüft {@code RestrictIntegrationTest} – ohne
- * Session-Regeln hat eine Session gar keine Tools. Achtung: Mit {@code ollama/gemma4:e4b} auf CPU
+ * Session-Regeln hat eine Session gar keine Tools. Achtung: Mit einem kleinen Modell auf CPU
  * dauert der erste Prompt nach einem Kaltstart ~2 min; die Timeouts sind entsprechend großzügig.
  */
 @Tag("integration")

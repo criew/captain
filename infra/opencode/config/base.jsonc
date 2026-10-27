@@ -1,4 +1,4 @@
-// SICHERHEITSBASIS – fest im Image (/root/.config/opencode/opencode.jsonc).
+// SICHERHEITSBASIS – fest im Image (/home/captain/.config/opencode/opencode.jsonc).
 // Nicht editierbar im Betrieb; Aenderungen nur per Rebuild.
 //
 // Headless und restriktiv: keine Tools ausser Dateizugriff im eigenen
@@ -8,7 +8,7 @@
 // Editierbar (Provider, Modelle, Limits, MCP-Server und deren Freigaben) ist
 // die Admin-Config /etc/captain/opencode.jsonc; start.mjs uebernimmt davon nur
 // eine Allowlist und gibt opencode die bereinigte Kopie (OPENCODE_CONFIG). So fuehrt
-// opencode die Quellen zusammen (an 2.0.20 aus dem Binary ermittelt, fuer 2.1.2
+// opencode die Quellen zusammen (an 2.0.20 aus dem Binary ermittelt, fuer 2.2.0
 // per ConfigLayersIntegrationTest belegt):
 //
 //   Reihenfolge: global (diese Datei) -> OPENCODE_CONFIG (Admin) -> Projekt
@@ -41,7 +41,7 @@
   // gilt "ask" (wuerde headless haengen). Deshalb zuerst alles verbieten. Eine
   // Aktion, deren letzte passende Regel "resource: *, deny" ist, bietet
   // opencode dem Modell gar nicht erst als Tool an.
-  // Aktionen (2.0.20/2.1.2): read, edit (edit/write/apply_patch), glob, grep,
+  // Aktionen (2.0.20/2.2.0): read, edit (edit/write/apply_patch), glob, grep,
   // shell, webfetch, websearch, subagent, skill, question, external_directory,
   // execute (Code Mode), opencode_list_mcp_resources,
   // opencode_read_mcp_resource und MCP-Tools als <server>_<tool>.

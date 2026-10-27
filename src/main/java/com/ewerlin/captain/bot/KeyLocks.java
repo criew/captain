@@ -13,7 +13,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public final class KeyLocks {
 
     private static final class Entry {
-        final ReentrantLock lock = new ReentrantLock();
+        final ReentrantLock lock = new ReentrantLock(true); // fair: Wartende in Ankunftsreihenfolge (REST)
         int users;
     }
 

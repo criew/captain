@@ -10,7 +10,7 @@ import com.ewerlin.captain.policy.Webfetch;
 public final class SessionPermissions {
 
     /**
-     * Datei-Aktionen, die eine Session in ihrem Verzeichnis darf (v2.0.20–2.1.2): {@code edit} deckt die
+     * Datei-Aktionen, die eine Session in ihrem Verzeichnis darf (v2.0.20–2.2.0): {@code edit} deckt die
      * Tools edit, write und apply_patch ab. Einen eigenen list-Aktionsnamen gibt es in v2 nicht
      * (Verzeichnisse listet glob/read).
      */

@@ -165,7 +165,7 @@ public final class Routing {
     /** Wo {@code !modell} gilt: Top-Level in Kanal/Gruppe → ganzer Kanal, sonst die Session. */
     public static String settingsKey(Post post) {
         if (!post.channelType().equals("D") && post.rootId().isEmpty()) {
-            return "ch:" + post.channelId();
+            return SessionKeys.MATTER_CHANNEL + post.channelId();
         }
         return conversationKey(post);
     }

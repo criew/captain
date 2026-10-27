@@ -1,6 +1,6 @@
 // Egress-Filter fuer opencode – nur aktiv, wenn CAPTAIN_WEBFETCH_ALLOW gesetzt ist.
 //
-// opencode (2.0.20–2.1.2) prueft bei webfetch nur die URL, die das Modell angibt;
+// opencode (2.0.20–2.2.0) prueft bei webfetch nur die URL, die das Modell angibt;
 // Weiterleitungen folgt es selbst (fetch, redirect "follow") OHNE erneute
 // Pruefung (belegt: WebfetchIntegrationTest). Ein erlaubter Host
 // mit offener Weiterleitung waere sonst ein Tor zu jedem anderen Ziel.
@@ -12,8 +12,7 @@
 //   - die Hosts der Allowlist (bei Standardport auch der andere Standardport,
 //     damit http -> https auf demselben Host funktioniert),
 //   - die Endpunkte aus der Admin-Config (providers.*.settings.baseURL,
-//     mcp.servers.*.url), LLM_BASE_URL/OLLAMA_BASE_URL und die API-Hosts
-//     eingebauter Cloud-Provider mit gesetztem Key.
+//     mcp.servers.*.url) und LLM_BASE_URL.
 // Alles andere: 403 und ein Logeintrag "[captain-egress] blockiert: …".
 // Weiter geht es direkt oder ueber den Proxy aus CAPTAIN_HTTP(S)_PROXY /
 // CAPTAIN_NO_PROXY (im Container HTTP_PROXY/HTTPS_PROXY/NO_PROXY).
@@ -38,10 +37,6 @@ export function target(url) {
   return u.hostname && port ? key(u.hostname, port) : null;
 }
 
-// API-Hosts der eingebauten Cloud-Provider (start.mjs: CLOUD_KEYS)
-export const CLOUD_HOSTS = { ANTHROPIC_API_KEY: "api.anthropic.com", OPENAI_API_KEY: "api.openai.com", OPENROUTER_API_KEY: "openrouter.ai" };
-const CLOUD_PROVIDERS = { ANTHROPIC_API_KEY: "anthropic", OPENAI_API_KEY: "openai", OPENROUTER_API_KEY: "openrouter" };
-
 // Erlaubte Ziele: Allowlist-Praefixe + Infrastruktur aus bereinigter Config/Umgebung
 export function allowedTargets(prefixes, clean, env, warn = () => {}) {
   const set = new Set();
@@ -50,21 +45,17 @@ export function allowedTargets(prefixes, clean, env, warn = () => {}) {
     set.add(target(p));
     if (!u.port) for (const port of [80, 443]) set.add(key(u.hostname, port));
   }
-  const cloud = new Set(Object.entries(CLOUD_PROVIDERS).filter(([k]) => env[k]).map(([, id]) => id));
   for (const [name, prov] of Object.entries(clean?.providers ?? {})) {
     const t = prov?.settings?.baseURL ? target(prov.settings.baseURL) : null;
     if (t) set.add(t);
-    else if (!cloud.has(name)) warn(`providers.${name}: ohne gueltige settings.baseURL kennt der Egress-Filter das Ziel nicht – Anfragen dorthin werden blockiert (baseURL eintragen)`);
+    else warn(`providers.${name}: ohne gueltige settings.baseURL kennt der Egress-Filter das Ziel nicht – Anfragen dorthin werden blockiert (baseURL eintragen)`);
   }
   for (const s of Object.values(clean?.mcp?.servers ?? {})) {
     const t = target(s.url);
     if (t) set.add(t);
   }
-  for (const k of ["LLM_BASE_URL", "OLLAMA_BASE_URL"]) {
-    const t = env[k] ? target(env[k]) : null;
-    if (t) set.add(t);
-  }
-  for (const [k, host] of Object.entries(CLOUD_HOSTS)) if (env[k]) set.add(key(host, 443));
+  const llm = env.LLM_BASE_URL ? target(env.LLM_BASE_URL) : null;
+  if (llm) set.add(llm);
   return set;
 }
 

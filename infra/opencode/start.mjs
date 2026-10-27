@@ -3,7 +3,7 @@
 //
 // Die Admin-Config (/etc/captain/opencode.jsonc, im Betrieb vom Host
 // eingebunden) darf nur Provider, Modelle, Limits, Remote-MCP-Server und
-// Freigaben setzen. opencode (2.0.20–2.1.2) fuehrt u. a. "plugins", "agents",
+// Freigaben setzen. opencode (2.0.20–2.2.0) fuehrt u. a. "plugins", "agents",
 // "commands", "skills", "instructions", "references", "shell", "enterprise"
 // und lokale MCP-Server (type "local" = beliebiger Prozess als root) aus
 // JEDER Config-Quelle zusammen – die feste Basis kann sie dort nicht
@@ -86,7 +86,7 @@ const PLACEHOLDER = /\{(env|file):/;
 
 // Referenzierbare Umgebungsvariablen (alles andere – u. a. MM_*,
 // OPENCODE_SERVER_PASSWORD, CAPTAIN_* – wird nie eingesetzt).
-export const REF_OK = /^(LLM_[A-Z0-9_]+|OLLAMA_[A-Z0-9_]+|MCP_[A-Z0-9_]+|[A-Z0-9_]+_API_KEY|OPENCODE_MODEL|OPENCODE_VARIANT)$/;
+export const REF_OK = /^(LLM_[A-Z0-9_]+|MCP_[A-Z0-9_]+|OPENCODE_MODEL|OPENCODE_VARIANT)$/;
 export const REF_NEVER = /^(MM_|CAPTAIN_|OPENCODE_SERVER_PASSWORD$)/;
 export const refAllowed = (name) => REF_OK.test(name) && !REF_NEVER.test(name);
 
@@ -95,7 +95,7 @@ class Drop extends Error {}
 function resolveString(s, env, path, warn) {
   const out = s.replace(/\{env:([^}]*)\}/g, (_m, name) => {
     if (!refAllowed(name)) {
-      warn(`${path}: {env:${name}} nicht erlaubt (nur LLM_*, OLLAMA_*, MCP_*, *_API_KEY, OPENCODE_MODEL/VARIANT)`);
+      warn(`${path}: {env:${name}} nicht erlaubt (nur LLM_*, MCP_*, OPENCODE_MODEL/VARIANT)`);
       throw new Drop();
     }
     return env[name] ?? "";
@@ -131,15 +131,10 @@ export function resolveEnv(value, env, warn = () => {}, path = "$") {
   return value;
 }
 
-// Nur diese Provider-Pakete (in opencode 2.x eingebaut). Alles andere
-// wuerde opencode per import (file://) oder npm-Installation zur Laufzeit laden.
-export const PACKAGES = new Set([
-  "@ai-sdk/openai-compatible",
-  ...["amazon-bedrock", "anthropic", "anthropic-compatible", "azure", "baseten", "cerebras",
-    "cloudflare-ai-gateway", "cloudflare-workers-ai", "deepinfra", "deepseek", "fireworks", "google",
-    "google-vertex", "groq", "mistral", "openai", "openai-compatible", "openrouter", "togetherai", "xai",
-  ].map((p) => `@opencode/ai/providers/${p}`),
-]);
+// Nur OpenAI-kompatible Endpunkte (in opencode 2.x eingebaut; Captain nutzt
+// keine Cloud-Provider). Alles andere wuerde opencode per import (file://)
+// oder npm-Installation zur Laufzeit laden.
+export const PACKAGES = new Set(["@ai-sdk/openai-compatible", "@opencode/ai/providers/openai-compatible"]);
 
 const str = (v) => typeof v === "string";
 const num = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0;
@@ -157,8 +152,10 @@ const RULE = { action: str, resource: str, effect: (v) => v === "allow" || v ===
 
 function pick(obj, schema, path, warn) {
   const out = {};
-  for (const [k, v] of Object.entries(obj)) {
+  for (let [k, v] of Object.entries(obj)) {
     const check = Object.hasOwn(schema, k) ? schema[k] : undefined;
+    // Zahlen aus {env:…} (z. B. LLM_CONTEXT) kommen als Text an
+    if (check === num && typeof v === "string" && /^[0-9]+$/.test(v)) v = Number(v);
     if (check === undefined) { warn(`${path}.${k} nicht erlaubt – verworfen`); continue; }
     if (typeof check === "function") {
       if (check(v)) out[k] = v;
@@ -236,22 +233,19 @@ export function buildConfig(text, env, warn = () => {}) {
 // opencode bringt eingebaute Cloud-Provider mit (u. a. "opencode" mit
 // kostenlosen Zen-Modellen). Ohne Einschraenkung koennte jeder Chat per
 // !modell dorthin wechseln – Chat-Inhalte verliessen dann das Haus. Erlaubt
-// sind deshalb nur die Provider der Admin-Config plus eingebaute
-// Cloud-Provider, deren API-Key ausdruecklich gesetzt ist.
-export const CLOUD_KEYS = { ANTHROPIC_API_KEY: "anthropic", OPENAI_API_KEY: "openai", OPENROUTER_API_KEY: "openrouter" };
+// sind deshalb nur die Provider der Admin-Config.
 // Platzhalter, falls gar nichts konfiguriert ist: leere Liste hiesse bei
 // opencode "keine Einschraenkung".
 export const NO_PROVIDER = "captain-kein-provider";
 
-export function enabledProviders(clean, env) {
-  const set = new Set(Object.keys(clean?.providers ?? {}));
-  for (const [key, id] of Object.entries(CLOUD_KEYS)) if (env[key]) set.add(id);
-  return set.size ? [...set].sort() : [NO_PROVIDER];
+export function enabledProviders(clean) {
+  const names = Object.keys(clean?.providers ?? {});
+  return names.length ? names.sort() : [NO_PROVIDER];
 }
 
 // --- webfetch-Allowlist (CAPTAIN_WEBFETCH_ALLOW) ------------------------------
 // Gleiche Normalisierung wie Webfetch.java (gemeinsame Testfaelle:
-// src/test/resources/data/webfetch_allow.json). opencode (2.0.20–2.1.2) prueft bei webfetch die
+// src/test/resources/data/webfetch_allow.json). opencode (2.0.20–2.2.0) prueft bei webfetch die
 // ROHE URL des Modells gegen Muster: "*" = beliebig viel (auch "/"),
 // "?" = genau ein beliebiges Zeichen, "\\" im Wert zaehlt als "/", Gross-/
 // Kleinschreibung zaehlt. Ein Eintrag wird deshalb zu "<praefix>" und
@@ -325,7 +319,7 @@ export function webfetchPolicies(prefixes) {
 // --- Umgebung fuer opencode ---------------------------------------------------
 const FIXED_CONFIG = { share: "disabled", update: "disable", websearch: false, lsp: false, formatter: false, snapshots: false };
 export const FIXED = {
-  HOME: "/root",
+  HOME: "/home/captain",
   OPENCODE_DISABLE_PROJECT_CONFIG: "1",
   OPENCODE_CONFIG_PROJECT_DISABLE: "1",
   OPENCODE_CONFIG: TARGET,
@@ -336,8 +330,6 @@ export const FIXED = {
 };
 const PASS = new Set(["PATH", "TZ", "LANG", "LC_ALL", "OPENCODE_SERVER_PASSWORD", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE",
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"]);
-// Eingebaute Cloud-Provider lesen ihre Keys selbst aus der Umgebung
-const PASS_RE = /^[A-Z0-9_]+_API_KEY$/;
 
 // Mit Egress-Filter (proxy) laeuft aller Verkehr von opencode ueber ihn; nur
 // Loopback geht direkt. Der Filter selbst nutzt die urspruenglichen
@@ -347,7 +339,7 @@ const LOOPBACK = "localhost,127.0.0.1,::1";
 export function environment(env, enabled = [NO_PROVIDER], { webfetch = [], proxy = null, shared = false } = {}) {
   const out = {};
   for (const [k, v] of Object.entries(env)) {
-    if (PASS.has(k) || (PASS_RE.test(k) && !REF_NEVER.test(k))) out[k] = v;
+    if (PASS.has(k)) out[k] = v;
   }
   const proxied = proxy
     ? { HTTP_PROXY: proxy, HTTPS_PROXY: proxy, http_proxy: proxy, https_proxy: proxy, NO_PROXY: LOOPBACK, no_proxy: LOOPBACK }
@@ -390,7 +382,7 @@ async function main() {
     fail(`${TARGET} nicht schreibbar: ${e.message}`);
   }
   const c = built.clean;
-  const enabled = enabledProviders(c, process.env);
+  const enabled = enabledProviders(c);
   console.error(`[captain-start] Admin-Config geprueft: ${Object.keys(c).join(", ") || "(leer)"}; MCP-Server: ${Object.keys(c.mcp?.servers ?? {}).join(", ") || "keine"}; Provider: ${enabled.join(", ")}`);
 
   let webfetch = [];

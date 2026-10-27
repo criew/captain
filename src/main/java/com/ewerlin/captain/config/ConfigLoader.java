@@ -32,7 +32,7 @@ import tools.jackson.databind.JsonNode;
  * <p>Werte kommen aus der Umgebung (im Betrieb Spring {@code Environment}: Umgebungsvariablen,
  * Systemeigenschaften), optional ergänzt um eine JSON-Datei (Pfad in {@code CAPTAIN_CONFIG}). Die
  * Umgebung gewinnt immer gegen die Datei. Die JSON-Datei benutzt dieselben Schlüssel wie die
- * Umgebung, z. B. {@code {"MM_URL": "http://localhost:8065", "ALLOWED_USERS": ["alice", "bob"]}}.
+ * Umgebung, z. B. {@code {"MM_URL": "http://localhost:8065", "MAX_ATTACHMENT_MB": 50}}.
  *
  * <p>Persona/Systemnachricht: {@code CAPTAIN_SYSTEM_PROMPT_FILE} (Pfad zu einer Textdatei) hat
  * Vorrang vor {@code CAPTAIN_SYSTEM_PROMPT} (Text); ohne beides gilt {@link #DEFAULT_SYSTEM_PROMPT}.
@@ -40,16 +40,17 @@ import tools.jackson.databind.JsonNode;
 public final class ConfigLoader {
 
     public static final String CONFIG_ENV = "CAPTAIN_CONFIG";
+    static final int API_TOKEN_MIN = 24;
 
     static final List<String> REQUIRED = List.of("MM_URL", "MM_BOT_TOKEN", "OPENCODE_URL");
     static final List<String> OPTIONAL = List.of(
             "OPENCODE_PASSWORD", "OPENCODE_MODEL", "OPENCODE_VARIANT",
             "CAPTAIN_SYSTEM_PROMPT", "CAPTAIN_SYSTEM_PROMPT_FILE", "CAPTAIN_WEBFETCH_ALLOW",
-            "CAPTAIN_SHARED_DIR", "CAPTAIN_HOME");
+            "CAPTAIN_SHARED_DIR", "CAPTAIN_HOME", "CAPTAIN_API_TOKEN");
     public static final Map<String, String> DEFAULTS = defaults();
     public static final String DEFAULT_SYSTEM_PROMPT =
-            "Du bist **Captain**, ein hilfsbereiter, sachlicher Assistent, der über Mattermost mit Menschen chattet.";
-    static final List<String> KEYS = Stream.of(REQUIRED, OPTIONAL, List.copyOf(DEFAULTS.keySet()), List.of("ALLOWED_USERS"))
+            "Du bist **Captain**, ein hilfsbereiter, sachlicher Assistent.";
+    static final List<String> KEYS = Stream.of(REQUIRED, OPTIONAL, List.copyOf(DEFAULTS.keySet()))
             .flatMap(List::stream).toList();
 
     private static final Pattern DURATION = Pattern.compile("\\s*(\\d+(?:\\.\\d+)?)\\s*([smhd]?)\\s*");
@@ -111,13 +112,13 @@ public final class ConfigLoader {
                 sessionsDir(values.get("SESSIONS_DIR")),
                 text(values.get("DATA_DIR")),
                 systemPrompt(values),
-                users(values.get("ALLOWED_USERS")),
                 parseDuration(values.get("CATCHUP_MAX_AGE")),
                 parseMb(values.get("MAX_ATTACHMENT_MB")),
                 count(values, "HISTORY_MAX_POSTS"),
                 count(values, "HISTORY_MAX_CHARS"),
                 webfetch(values.get("CAPTAIN_WEBFETCH_ALLOW")),
-                shared(values.get("CAPTAIN_SHARED_DIR"), values.get("CAPTAIN_HOME")));
+                shared(values.get("CAPTAIN_SHARED_DIR"), values.get("CAPTAIN_HOME")),
+                apiToken(values.get("CAPTAIN_API_TOKEN")));
     }
 
     public static CaptainConfig load(Function<String, String> env) {
@@ -225,28 +226,17 @@ public final class ConfigLoader {
         return mb;
     }
 
-    private static Set<String> users(Object value) {
-        if (value == null) {
-            return Set.of();
+    /** REST-Token: leer = REST aus; sonst mindestens {@value #API_TOKEN_MIN} Zeichen ohne Leerraum. */
+    private static String apiToken(Object value) {
+        String token = text(value).strip();
+        if (token.isEmpty()) {
+            return null;
         }
-        List<String> items = new ArrayList<>();
-        if (value instanceof JsonNode node && node.isArray()) {
-            node.forEach(n -> items.add(text(n.isString() ? n.asString() : n)));
-        } else {
-            items.addAll(List.of(text(value).split(",", -1)));
+        if (token.length() < API_TOKEN_MIN || token.chars().anyMatch(Character::isWhitespace)) {
+            throw new ConfigException("CAPTAIN_API_TOKEN muss mindestens " + API_TOKEN_MIN
+                    + " Zeichen ohne Leerzeichen haben (z. B. openssl rand -hex 32)");
         }
-        Set<String> out = new LinkedHashSet<>();
-        for (String u : items) {
-            if (!u.strip().isEmpty()) {
-                String name = u.strip();
-                int i = 0;
-                while (i < name.length() && name.charAt(i) == '@') {
-                    i++;
-                }
-                out.add(name.substring(i).toLowerCase(Locale.ROOT));
-            }
-        }
-        return out;
+        return token;
     }
 
     private static String systemPrompt(Map<String, Object> values) {
