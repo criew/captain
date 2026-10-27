@@ -216,13 +216,15 @@ class E2E:
                 "bob", group, "Und ich bin Bob. Wie heißen wir beide? Antworte in einem Satz.", root)
             # Normalfall: zwei Antworten nacheinander. Kam bobs Post an, bevor
             # die erste Ausführung startete, gibt es eine gebündelte Antwort –
-            # dann gilt „fertig“, wenn sich 15 s nichts mehr tut.
+            # dann gilt „fertig“, wenn sie bob nennt und sich 15 s nichts mehr tut
+            # (sonst ist es nur die Antwort an alice, und bobs Prompt läuft noch).
             state = {"msgs": None, "since": time.monotonic()}
 
             def settled(msgs):
                 if msgs != state["msgs"]:
                     state.update(msgs=msgs, since=time.monotonic())
-                return len(msgs) >= 2 or time.monotonic() - state["since"] > 15
+                quiet = time.monotonic() - state["since"] > 15
+                return len(msgs) >= 2 or (quiet and "bob" in msgs[-1].lower())
 
             text, secs = self.wait_reply(group, first, root, until=settled)
             posts = self.bot_posts(group, first, None)
@@ -576,6 +578,8 @@ def classify(name: str, answer: str) -> str:
 
 
 def main() -> int:
+    # Windows-Konsole (cp1252) kann die Emojis der Bot-Antworten nicht ausgeben
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--env", default=os.path.join(ROOT, "infra", "mattermost", "generated.env"))
     ap.add_argument("--timeout", type=float, default=300.0,
