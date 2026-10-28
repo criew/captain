@@ -67,6 +67,8 @@ public final class ConfigLoader {
         d.put("DATA_DIR", "data");
         // Verpasste Posts höchstens so alt nachholen: Sekunden oder mit s/m/h/d; 0 = nichts
         d.put("CATCHUP_MAX_AGE", "24h");
+        // Sessions so lange unbenutzt → opencode-Session und Verzeichnis löschen; 0 = nie
+        d.put("SESSION_MAX_IDLE", "14d");
         // Größere Anhänge werden nicht geladen (MB, Dezimalzahl erlaubt; 0 = keine Grenze)
         d.put("MAX_ATTACHMENT_MB", "20");
         // Vorgeschichte einer neuen Kanal-Unterhaltung (Top-Level-Erwähnung):
@@ -118,7 +120,8 @@ public final class ConfigLoader {
                 count(values, "HISTORY_MAX_CHARS"),
                 webfetch(values.get("CAPTAIN_WEBFETCH_ALLOW")),
                 shared(values.get("CAPTAIN_SHARED_DIR"), values.get("CAPTAIN_HOME")),
-                apiToken(values.get("CAPTAIN_API_TOKEN")));
+                apiToken(values.get("CAPTAIN_API_TOKEN")),
+                parseDuration(values.get("SESSION_MAX_IDLE")));
     }
 
     public static CaptainConfig load(Function<String, String> env) {

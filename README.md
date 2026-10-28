@@ -19,6 +19,9 @@ Betrieb, Konfiguration und Sicherheitsdetails: **[docs/betrieb.md](docs/betrieb.
   bekommt ⏳ und wird gebündelt beantwortet.
 - **Nachholen:** Nach Neustart oder Verbindungsabriss beantwortet er verpasste
   Nachrichten (bis `CATCHUP_MAX_AGE`), nie doppelt.
+- **Aufräumen:** Sessions, die `SESSION_MAX_IDLE` (14 Tage) ruhen, werden
+  gelöscht; Threads und DMs machen danach mit dem Chat-Verlauf als Kontext
+  weiter.
 - **Anhänge** landen im Session-Verzeichnis; Text liest jedes Modell, Bilder
   nur multimodale. PDF/Office (noch) nicht.
 - **Werkzeuge:** nur Dateien im eigenen Session-Verzeichnis (`read`, `write`,

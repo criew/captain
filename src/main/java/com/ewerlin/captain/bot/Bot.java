@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -87,6 +88,12 @@ import tools.jackson.databind.node.ObjectNode;
  * {@link #ask} beantwortet eine Nachricht ohne Mattermost: Die Conversation-ID des Aufrufers wird
  * zum Session-Key {@code rest:<id>}, gleiche ID = gleiche opencode-Session. Anfragen derselben ID
  * laufen nacheinander (fairer {@link KeyLocks}-Lock), siehe {@link com.ewerlin.captain.api.ApiServer}.
+ *
+ * <h2>Aufräumen</h2>
+ * {@link #sweep} löscht stündlich Sessions, die länger als {@code SESSION_MAX_IDLE} unbenutzt sind
+ * (opencode-Session, Verzeichnis, Store-Eintrag; Modell bleibt). Die Cursor ({@link CursorStore})
+ * bleiben unberührt. Kommt danach eine neue Nachricht, entsteht eine neue Session: im Thread mit dem
+ * Thread-Verlauf, in der DM mit den letzten DM-Posts als Kontext, im REST-Kanal ohne Verlauf.
  */
 public class Bot implements Conversations {
 
@@ -101,6 +108,11 @@ public class Bot implements Conversations {
     static final int THREAD_CONTEXT_POSTS = 20;
     /** … pro Post höchstens so viele Zeichen. */
     static final int THREAD_CONTEXT_CHARS = 2000;
+    /** Janitor: erster Lauf nach so vielen Sekunden, danach in diesem Abstand. */
+    static final long JANITOR_DELAY = 60;
+    static final long JANITOR_INTERVAL = 3600;
+    /** Antwort auf {@code !neu}; ältere Posts gehören nicht mehr in den Kontext einer neuen Session. */
+    static final String NEW_NOTE = "🆕 Neue Unterhaltung – der bisherige Verlauf ist vergessen.";
     /** So viele nachgeholte Post-IDs für den Verspätungshinweis merken. */
     static final int LATE_MAX = 1000;
     /** Dedupe live/nachgeholt (dazu die gespeicherten beantworteten IDs). */
@@ -179,6 +191,8 @@ public class Bot implements Conversations {
     ExecutorService commands;
     /** Nachschlagen per REST außerhalb des WebSocket-Threads, in Reihenfolge. */
     final ExecutorService lookup;
+    /** Janitor ({@link #sweep}), läuft ab {@link #run}. */
+    private final ScheduledThreadPoolExecutor janitor;
     private final KeyLocks locks = new KeyLocks();
 
     final Object mutex = new Object();
@@ -238,6 +252,11 @@ public class Bot implements Conversations {
         this.side = executor(2, "captain-side");
         this.commands = executor(4, "captain-command");
         this.lookup = executor(1, "captain-lookup");
+        this.janitor = new ScheduledThreadPoolExecutor(1, r -> {
+            Thread t = new Thread(r, "captain-janitor");
+            t.setDaemon(true);
+            return t;
+        });
         this.startedMs = clock.getAsLong();
     }
 
@@ -347,6 +366,14 @@ public class Bot implements Conversations {
             throw new IllegalStateException("SESSIONS_DIR " + cfg.sessionsDir() + " nicht anlegbar", e);
         }
         log.info("Captain läuft als @{} ({})", Json.str(me, "username"), Json.str(me, "id"));
+        if (!cfg.sessionMaxIdle().isZero()) {
+            try {
+                janitor.scheduleWithFixedDelay(() -> guarded("sweep", this::sweep), JANITOR_DELAY, JANITOR_INTERVAL,
+                        TimeUnit.SECONDS);
+            } catch (RejectedExecutionException e) {
+                // schon beendet
+            }
+        }
         mm.listen(this::onWsPost, this::onHello);
         waitQuiet(STOP_GRACE);
     }
@@ -364,6 +391,7 @@ public class Bot implements Conversations {
         cursors.close(); // vor allem Weiteren: späteres „erledigt“ zählt nicht
         mm.close();
         abortAll(new ArrayList<>(running.values()));
+        janitor.shutdownNow();
         for (ExecutorService executor : List.of(pool, side, commands, lookup)) {
             if (executor instanceof ThreadPoolExecutor tpe) {
                 tpe.getQueue().clear(); // Wartendes verwerfen, Laufendes zu Ende bringen
@@ -375,7 +403,7 @@ public class Bot implements Conversations {
     /** Nach {@link #stop}: wartet höchstens {@code timeout} s, bis alle Pools leer sind (Tests). */
     void awaitStopped(double timeout) {
         long deadline = System.nanoTime() + (long) (timeout * 1e9);
-        for (ExecutorService executor : List.of(pool, side, commands, lookup)) {
+        for (ExecutorService executor : List.of(pool, side, commands, lookup, janitor)) {
             try {
                 executor.awaitTermination(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
             } catch (InterruptedException e) {
@@ -1061,7 +1089,8 @@ public class Bot implements Conversations {
         }
     }
 
-    private record SessionRef(String sid, String directory, boolean created) {
+    /** {@code expired}: neu angelegt, weil der Janitor die vorige aufgeräumt hat. */
+    private record SessionRef(String sid, String directory, boolean created, boolean expired) {
     }
 
     /**
@@ -1075,10 +1104,13 @@ public class Bot implements Conversations {
         Map<String, String> entry = store.get(key);
         String sid = entry == null ? null : entry.get("opencode_session_id");
         String directory = entry == null ? null : entry.get("directory");
+        long now = clock.getAsLong();
         if (sid != null && !sid.isEmpty() && !fresh && owned(directory)) {
             mkdirs(directory); // vor dem Prompt, sonst HTTP 500
-            return new SessionRef(sid, directory, false);
+            store.touch(key, now);
+            return new SessionRef(sid, directory, false, false);
         }
+        boolean expired = entry != null && entry.containsKey(SessionStore.EXPIRED_AT);
         removeDir(directory);
         sid = newSessionId.get();
         directory = sessionDir(sid);
@@ -1094,9 +1126,9 @@ public class Bot implements Conversations {
                 noInstructions.add(sid); // → Vorspann im ersten Prompt
             }
         }
-        store.set(key, sid, directory);
+        store.set(key, sid, directory, now);
         log.info("{}: neue opencode-Session {} in {}", key, sid, directory);
-        return new SessionRef(sid, directory, true);
+        return new SessionRef(sid, directory, true, expired);
     }
 
     private static void mkdirs(String directory) {
@@ -1232,9 +1264,47 @@ public class Bot implements Conversations {
             log.warn("Thread {} nicht ladbar: {}", rootId, e.toString());
             return "";
         }
+        List<String> lines = recent(thread, exclude);
+        if (lines.isEmpty()) {
+            return "";
+        }
+        return "[Bisheriger Verlauf dieses Threads]\n" + String.join("\n", lines) + "\n[Ende des Verlaufs]\n\n";
+    }
+
+    /** Letzte DM-Posts (ohne {@code exclude}) als Kontext, nachdem der Janitor die Session aufgeräumt hat. */
+    private String dmContext(String channelId, Set<String> exclude) {
+        List<JsonNode> posts;
+        try {
+            posts = mm.getChannelPosts(channelId);
+        } catch (RuntimeException e) {
+            log.warn("Kanal {} nicht ladbar: {}", channelId, e.toString());
+            return "";
+        }
+        List<String> lines = recent(posts, exclude);
+        if (lines.isEmpty()) {
+            return "";
+        }
+        return "[Bisheriger Verlauf dieser Direktnachrichten – die frühere Sitzung wurde nach längerer Pause "
+                + "beendet]\n" + String.join("\n", lines) + "\n[Ende des Verlaufs]\n\n";
+    }
+
+    /**
+     * Die letzten {@link #THREAD_CONTEXT_POSTS} Posts (älteste zuerst) als {@code Name: Text}, jeweils
+     * gekürzt; ohne {@code exclude}, Systemposts und alles bis einschließlich Captains letzter
+     * {@code !neu}-Bestätigung.
+     */
+    private List<String> recent(List<JsonNode> posts, Set<String> exclude) {
         String me = Json.str(mm.me(), "id");
+        int from = 0;
+        for (int i = posts.size() - 1; i >= 0; i--) {
+            JsonNode post = posts.get(i);
+            if (Json.str(post, "user_id").equals(me) && Json.str(post, "message").strip().endsWith(NEW_NOTE)) {
+                from = i + 1;
+                break;
+            }
+        }
         List<String> lines = new ArrayList<>();
-        for (JsonNode post : thread.subList(Math.max(0, thread.size() - THREAD_CONTEXT_POSTS), thread.size())) {
+        for (JsonNode post : posts.subList(Math.max(from, posts.size() - THREAD_CONTEXT_POSTS), posts.size())) {
             String message = Json.str(post, "message").strip();
             if (message.isEmpty() || exclude.contains(Json.str(post, "id")) || Json.truthy(post, "type")) {
                 continue;
@@ -1250,10 +1320,7 @@ public class Bot implements Conversations {
             }
             lines.add(name + ": " + message);
         }
-        if (lines.isEmpty()) {
-            return "";
-        }
-        return "[Bisheriger Verlauf dieses Threads]\n" + String.join("\n", lines) + "\n[Ende des Verlaufs]\n\n";
+        return lines;
     }
 
     /** Kanal-Posts seit Captains letzter Beteiligung als Vorgeschichte. */
@@ -1394,6 +1461,8 @@ public class Bot implements Conversations {
                 text = threadContext(first.rootId(), ids) + text;
             } else if (!first.channelType().equals("D")) { // Top-Level-Erwähnung → neuer Thread
                 text = channelContext(first, ids) + text;
+            } else if (s.expired()) { // DM nach dem Aufräumen
+                text = dmContext(first.channelId(), ids) + text;
             }
         }
         String prompt = preface(key, s.sid(), s.directory(), s.created()) + text;
@@ -1469,7 +1538,8 @@ public class Bot implements Conversations {
 
     /**
      * Vergisst die REST-Unterhaltung {@code conversation} (wie {@code !neu}): bricht eine laufende
-     * Antwort ab, löscht Session-Eintrag und -Verzeichnis. {@code false} = gab es nicht.
+     * Antwort ab, löscht opencode-Session, Session-Eintrag und -Verzeichnis. {@code false} = gab es
+     * nicht.
      */
     @Override
     public boolean forget(String conversation) {
@@ -1485,7 +1555,109 @@ public class Bot implements Conversations {
             }
             store.reset(key);
             removeDir(entry.get("directory"));
+            deleteSession(key, entry.get("opencode_session_id"));
             log.info("{}: Unterhaltung vergessen", key);
+            return true;
+        }
+    }
+
+    /** Löscht die opencode-Session {@code sid} (falls vorhanden); Fehler nur protokollieren. */
+    private void deleteSession(String key, String sid) {
+        if (sid == null || sid.isEmpty()) {
+            return;
+        }
+        synchronized (mutex) {
+            noInstructions.remove(sid);
+        }
+        try {
+            oc.deleteSession(sid);
+        } catch (RuntimeException e) { // Eintrag ist schon weg – Session bleibt in opencode liegen
+            log.warn("{}: opencode-Session {} nicht gelöscht: {}", key, sid, e.toString());
+        }
+    }
+
+    // -- Aufräumen -----------------------------------------------------------
+
+    /**
+     * Janitor-Lauf: räumt jede Session auf, deren letzte Nutzung länger als {@code SESSION_MAX_IDLE}
+     * her ist (alle Kanäle); liefert die Anzahl.
+     *
+     * <p>Aufräumen = opencode-Session löschen, Verzeichnis löschen, Store-Eintrag zurücksetzen
+     * (Modell bleibt; DMs bekommen {@code expired_at} für {@link #dmContext}). Keys mit laufender
+     * oder wartender Antwort und solche, deren Lock gerade jemand hält, kommen beim nächsten Lauf
+     * dran. Einträge ohne {@code last_used} (vor diesem Feld angelegt) gelten ab jetzt als genutzt.
+     * Schlägt das Löschen in opencode fehl, bleibt alles stehen (nächster Lauf).
+     */
+    int sweep() {
+        long maxIdle = cfg.sessionMaxIdle().toMillis();
+        if (maxIdle <= 0) {
+            return 0;
+        }
+        long now = clock.getAsLong();
+        int removed = 0;
+        int busy = 0;
+        for (String key : store.keys()) {
+            if (stopping.isSet()) {
+                break;
+            }
+            Map<String, String> entry = store.get(key);
+            if (entry == null || entry.get("opencode_session_id") == null) {
+                continue; // nur Einstellungen (z. B. Kanal-Modell)
+            }
+            Long last = SessionStore.lastUsed(entry);
+            if (last == null) {
+                store.touch(key, now);
+                continue;
+            }
+            if (now - last < maxIdle) {
+                continue;
+            }
+            Boolean done = expire(key, now, maxIdle);
+            if (done == null) {
+                busy++;
+            } else if (done) {
+                removed++;
+            }
+        }
+        if (removed > 0 || busy > 0) {
+            log.info("Aufgeräumt: {} Session(s) länger als {} h unbenutzt{}", removed,
+                    String.format(Locale.ROOT, "%.0f", maxIdle / 3.6e6), busy > 0 ? ", " + busy + " gerade belegt" : "");
+        }
+        return removed;
+    }
+
+    /** Eine Session aufräumen: {@code true} = erledigt, {@code false} = nicht (mehr) fällig, {@code null} = belegt. */
+    private Boolean expire(String key, long now, long maxIdle) {
+        KeyLocks.Held held = locks.tryLock(key);
+        if (held == null) {
+            return null;
+        }
+        try (held) {
+            synchronized (mutex) {
+                if (active.contains(key) || running.containsKey(key)) {
+                    return null;
+                }
+            }
+            Map<String, String> entry = store.get(key); // inzwischen benutzt?
+            Long last = SessionStore.lastUsed(entry);
+            String sid = entry == null ? null : entry.get("opencode_session_id");
+            if (sid == null || last == null || now - last < maxIdle) {
+                return false;
+            }
+            try {
+                oc.deleteSession(sid);
+            } catch (RuntimeException e) {
+                log.warn("{}: opencode-Session {} nicht löschbar ({}) – nächster Versuch beim nächsten Lauf", key, sid,
+                        e.toString());
+                return false;
+            }
+            store.expire(key, now, key.startsWith(SessionKeys.MATTER_DM));
+            removeDir(entry.get("directory"));
+            synchronized (mutex) {
+                noInstructions.remove(sid);
+            }
+            log.info("{}: Session {} seit {} h unbenutzt – aufgeräumt", key, sid,
+                    String.format(Locale.ROOT, "%.0f", (now - last) / 3.6e6));
             return true;
         }
     }
@@ -1519,10 +1691,12 @@ public class Bot implements Conversations {
                     return;
                 }
                 Map<String, String> entry = store.get(key);
-                String old = entry == null ? null : entry.get("directory");
                 store.reset(key);
-                removeDir(old);
-                reply(post, "🆕 Neue Unterhaltung – der bisherige Verlauf ist vergessen.");
+                if (entry != null) {
+                    removeDir(entry.get("directory"));
+                    deleteSession(key, entry.get("opencode_session_id"));
+                }
+                reply(post, NEW_NOTE);
             }
             case "stopp" -> {
                 if (!post.channelType().equals("D") && post.rootId().isEmpty()) {

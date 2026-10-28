@@ -74,8 +74,9 @@ class SessionStoreTest {
     @Test
     void setGetPersist() throws IOException {
         SessionStore store = new SessionStore(path);
-        Map<String, String> entry = store.set("matter-dm:a", "ses_1", "/tmp/captain/ses_1");
-        assertThat(entry).isEqualTo(Map.of("opencode_session_id", "ses_1", "directory", "/tmp/captain/ses_1"));
+        Map<String, String> entry = store.set("matter-dm:a", "ses_1", "/tmp/captain/ses_1", 42);
+        assertThat(entry).isEqualTo(Map.of("opencode_session_id", "ses_1", "directory", "/tmp/captain/ses_1",
+                "last_used", "42"));
         assertThat(new SessionStore(path).get("matter-dm:a")).isEqualTo(entry);
         assertThat(Json.parse(Files.readString(path))).isEqualTo(Json.tree(Map.of("matter-dm:a", entry)));
     }
@@ -92,9 +93,9 @@ class SessionStoreTest {
     void settingsSurviveSetAndReset() {
         SessionStore store = new SessionStore(path);
         store.setModel("matter-ch:a", "anthropic/m", "high");
-        store.set("matter-ch:a", "ses_1", "/w");
-        assertThat(store.get("matter-ch:a")).isEqualTo(Map.of(
-                "opencode_session_id", "ses_1", "directory", "/w", "model", "anthropic/m", "variant", "high"));
+        store.set("matter-ch:a", "ses_1", "/w", 7);
+        assertThat(store.get("matter-ch:a")).isEqualTo(Map.of("opencode_session_id", "ses_1", "directory", "/w",
+                "last_used", "7", "model", "anthropic/m", "variant", "high"));
         store.reset("matter-ch:a");
         assertThat(new SessionStore(path).get("matter-ch:a")).isEqualTo(Map.of("model", "anthropic/m", "variant", "high"));
     }
@@ -107,6 +108,35 @@ class SessionStoreTest {
         store.reset("matter-th:unbekannt");
         assertThat(store.get("matter-th:r")).isNull();
         assertThat(new SessionStore(path).get("matter-th:r")).isNull();
+    }
+
+    @Test
+    void touchAndLastUsed() {
+        SessionStore store = new SessionStore(path);
+        store.touch("matter-dm:a", 5); // ohne Session: nichts
+        assertThat(store.get("matter-dm:a")).isNull();
+        store.set("matter-dm:a", "ses_1", "/w", 10);
+        store.touch("matter-dm:a", 20);
+        assertThat(SessionStore.lastUsed(new SessionStore(path).get("matter-dm:a"))).isEqualTo(20L);
+        assertThat(SessionStore.lastUsed(Map.of("opencode_session_id", "alt"))).isNull();
+        assertThat(store.keys()).containsExactly("matter-dm:a");
+    }
+
+    @Test
+    void expireKeepsSettingsAndOptionalMark() {
+        SessionStore store = new SessionStore(path);
+        store.setModel("matter-dm:a", "m", null);
+        store.set("matter-dm:a", "ses_1", "/w", 1);
+        store.set("matter-th:r", "ses_2", "/w", 1);
+        store.expire("matter-dm:a", 99, true);
+        store.expire("matter-th:r", 99, false);
+        assertThat(new SessionStore(path).get("matter-dm:a")).isEqualTo(Map.of("model", "m", "expired_at", "99"));
+        assertThat(store.get("matter-th:r")).isNull();
+        store.set("matter-dm:a", "ses_3", "/w", 100); // neue Session: Markierung weg
+        assertThat(store.get("matter-dm:a")).doesNotContainKey("expired_at");
+        store.expire("matter-dm:a", 200, true);
+        store.reset("matter-dm:a"); // !neu: auch Markierung weg
+        assertThat(store.get("matter-dm:a")).isEqualTo(Map.of("model", "m"));
     }
 
     @Test
@@ -157,7 +187,7 @@ class SessionStoreTest {
     @Test
     void failedWriteKeepsMemoryState() {
         SessionStore store = new SessionStore(path);
-        store.set("matter-dm:a", "s1", "/w");
+        store.set("matter-dm:a", "s1", "/w", 1);
         store.setSetting("matter-dm:a", setting("model", "m"));
         store.mover = (from, to) -> {
             throw new IOException("disk voll");
@@ -166,7 +196,8 @@ class SessionStoreTest {
         assertThatThrownBy(() -> store.setSetting("matter-dm:a", setting("model", null))).isInstanceOf(UncheckedIOException.class);
         assertThatThrownBy(() -> store.reset("matter-dm:a")).isInstanceOf(UncheckedIOException.class);
         assertThatThrownBy(() -> store.set("matter-dm:neu", "s3", "/w")).isInstanceOf(UncheckedIOException.class);
-        assertThat(store.get("matter-dm:a")).isEqualTo(Map.of("opencode_session_id", "s1", "directory", "/w", "model", "m"));
+        assertThat(store.get("matter-dm:a")).isEqualTo(Map.of("opencode_session_id", "s1", "directory", "/w",
+                "last_used", "1", "model", "m"));
         assertThat(store.get("matter-dm:neu")).isNull();
     }
 

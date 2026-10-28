@@ -54,6 +54,7 @@ Smoke-Test: DM an `@captain`, dann `@captain Hallo` in einem Kanal, dort `!help`
 | `CAPTAIN_API_TOKEN` | leer = aus | REST-Kanal, mind. 24 Zeichen (`openssl rand -hex 32`) |
 | `CAPTAIN_API_PUBLISH` | `127.0.0.1:8090` | Host-Adresse der REST-API |
 | `CATCHUP_MAX_AGE` | `24h` | Verpasstes höchstens so alt nachholen, `0` = nie |
+| `SESSION_MAX_IDLE` | `14d` | Sessions so lange unbenutzt → aufräumen, `0` = nie (siehe [Aufräumen](#aufräumen)) |
 | `HISTORY_MAX_POSTS`, `HISTORY_MAX_CHARS` | `50`, `8000` | Vorgeschichte neuer Kanal-Threads |
 | `MAX_ATTACHMENT_MB` | `20` | größter Anhang, `0` = keine Grenze |
 | `CAPTAIN_WEBFETCH_ALLOW` | leer = aus | URL-Präfixe für `webfetch` |
@@ -112,6 +113,33 @@ Beispiel n8n: GitLab-Webhook → HTTP-Request an
 `/api/conversations/gitlab:{{project}}:mr-{{iid}}/messages` mit
 `callback_url` eines zweiten n8n-Webhooks → der postet `answer` als
 MR-Kommentar. Folgekommentare an dieselbe ID landen in derselben Session.
+Beim MR-Close/Merge `DELETE /api/conversations/{id}` – sonst räumt spätestens
+der Janitor auf (`SESSION_MAX_IDLE`); ein Kommentar danach startet eine
+Session **ohne** Verlauf, n8n muss dann den nötigen Kontext (MR-Beschreibung,
+Diff) mitschicken.
+
+## Aufräumen
+
+Stündlich löscht ein Janitor jede Session, die länger als `SESSION_MAX_IDLE`
+(Default `14d`) keinen Prompt bekam: opencode-Session (`DELETE
+/api/session/{id}`), Session-Verzeichnis und Eintrag in `sessions.json`. Ein
+per `!modell` gesetztes Modell bleibt. `!neu` und `DELETE
+/api/conversations/{id}` löschen die opencode-Session ebenfalls sofort.
+
+- Zählt pro Key `last_used` (jeder Prompt). Einträge von vor dem Update
+  gelten ab dem ersten Lauf als genutzt.
+- Laufende oder wartende Antworten werden übersprungen (nächster Lauf).
+- Ist opencode nicht erreichbar, bleibt alles stehen.
+- `cursors.json` bleibt unberührt – Nachholen und „schon beantwortet“
+  funktionieren wie vorher.
+
+Neue Nachricht nach dem Aufräumen:
+
+| Kanal | Verhalten |
+|---|---|
+| Thread (`matter-th:`) | neue Session mit den letzten 20 Thread-Posts als Kontext |
+| DM (`matter-dm:`) | neue Session mit den letzten 20 DM-Posts (seit dem letzten `!neu`) als Kontext |
+| REST (`rest:`) | neue Session ohne Verlauf, Kontext liefert der Aufrufer |
 
 ## opencode-Config
 
