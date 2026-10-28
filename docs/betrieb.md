@@ -285,6 +285,21 @@ Nur Remote-Server (HTTP/Streamable HTTP), jedes Tool einzeln freigeben:
 Aktion = `<server>_<tool>`; Server nicht `opencode…` nennen. Geheimnisse nach
 `mcp.env` (Name `MCP_…`), dann `up -d`. Probelauf mit `infra/mcp-test/`.
 
+- Interne MCP-Hosts in `CAPTAIN_NO_PROXY`, sonst geht der Aufruf über den
+  Proxy (Fehlerbild: HTML-Fehlerseite des Proxys, `HTTP 503`).
+- Config-Änderungen wirken erst nach `restart opencode`. Server-Schalter heißt
+  `"disabled": true` (`enabled` kennt opencode 2.x nicht).
+
+**Status prüfen** (im Image gibt es kein `curl`, aber `node`):
+
+```sh
+docker compose -f compose.deploy.yml exec opencode node -e 'fetch("http://127.0.0.1:4096/api/mcp?location[directory]=/tmp/captain",{headers:{authorization:"Basic "+Buffer.from("opencode:"+process.env.OPENCODE_SERVER_PASSWORD).toString("base64")}}).then(r=>r.text()).then(console.log)'
+```
+
+Jeder Server sollte `"status":"connected"` haben; bei `failed` steht der Grund
+in `error`. Steht dort noch ein alter Servername, läuft opencode mit der alten
+Config.
+
 ## webfetch
 
 ```sh
