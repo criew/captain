@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -218,5 +219,35 @@ class ConfigLoaderTest {
         Path path = tmp.resolve(name);
         Files.writeString(path, content, StandardCharsets.UTF_8);
         return path;
+    }
+
+    @Test
+    void restAgents() {
+        assertThat(load(Map.of()).restAgents()).isEmpty();
+        CaptainConfig cfg = load(Map.of("CAPTAIN_REST_AGENTS", " reviewer, doku ",
+                "CAPTAIN_AGENT_TOOLS", "reviewer: gitlab_get_mr_diff, gitlab_create_note gitlab_create_note; doku: wiki_*"));
+        assertThat(cfg.restAgents()).containsExactly(
+                Map.entry("reviewer", List.of("gitlab_get_mr_diff", "gitlab_create_note")),
+                Map.entry("doku", List.of("wiki_*")));
+        assertThat(cfg.agentTools()).containsExactly("gitlab_get_mr_diff", "gitlab_create_note", "wiki_*");
+        assertThat(load(Map.of("CAPTAIN_REST_AGENTS", "reviewer")).restAgents()).containsEntry("reviewer", List.of());
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "rev/iewer|",
+            "reviewer|andere: x_y",
+            "reviewer|gitlab_note",
+            "reviewer|reviewer: shell",
+            "reviewer|reviewer: opencode_list_mcp_resources",
+            "reviewer|reviewer: read",
+            "reviewer|reviewer: *",
+            "reviewer|reviewer: a\"b"})
+    void restAgentsRejected(String agents, String tools) {
+        Map<String, String> env = new HashMap<>(Map.of("CAPTAIN_REST_AGENTS", agents));
+        if (tools != null) {
+            env.put("CAPTAIN_AGENT_TOOLS", tools);
+        }
+        assertThatThrownBy(() -> load(env)).isInstanceOf(ConfigException.class).hasMessageContaining("CAPTAIN_");
     }
 }

@@ -292,6 +292,13 @@ class OpencodeClientTest {
     }
 
     @Test
+    void createSessionWithAgent() {
+        client.createSession("/tmp/captain/x", null, null, null, "reviewer");
+        assertThat(calls("POST", "/api/session")).containsExactly(
+                Json.parse("{\"location\":{\"directory\":\"/tmp/captain/x\"},\"agent\":\"reviewer\"}"));
+    }
+
+    @Test
     void createSessionWithIdAndPermissions() {
         List<Rule> rules = SessionPermissions.of("/tmp/captain/ses_abc/");
         assertThat(client.createSession("/tmp/captain/ses_abc", null, rules, "ses_abc")).isEqualTo("ses_abc");

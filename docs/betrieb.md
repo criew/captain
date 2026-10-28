@@ -53,6 +53,8 @@ Smoke-Test: DM an `@captain`, dann `@captain Hallo` in einem Kanal, dort `!help`
 | `CAPTAIN_SYSTEM_PROMPT[_FILE]` | neutral | Persona, Datei z. B. `/config/persona.md` |
 | `CAPTAIN_API_TOKEN` | leer = aus | REST-Kanal, mind. 24 Zeichen (`openssl rand -hex 32`) |
 | `CAPTAIN_API_PUBLISH` | `127.0.0.1:8090` | Host-Adresse der REST-API |
+| `CAPTAIN_REST_AGENTS` | leer = keiner | per REST wählbare opencode-Agenten, kommagetrennt (siehe [Agenten](#agenten-im-rest-kanal)) |
+| `CAPTAIN_AGENT_TOOLS` | leer | Tools nur für diese Agenten: `reviewer: tool tool; agent2: tool` |
 | `CATCHUP_MAX_AGE` | `24h` | Verpasstes höchstens so alt nachholen, `0` = nie |
 | `SESSION_MAX_IDLE` | `14d` | Sessions so lange unbenutzt → aufräumen, `0` = nie (siehe [Aufräumen](#aufräumen)) |
 | `HISTORY_MAX_POSTS`, `HISTORY_MAX_CHARS` | `50`, `8000` | Vorgeschichte neuer Kanal-Threads |
@@ -94,7 +96,7 @@ dann besser hinter TLS-Proxy).
 
 | Aufruf | Antwort |
 |---|---|
-| `POST /api/conversations/{id}/messages` `{"text", "sender"?, "callback_url"?}` | `200 {"conversation", "session", "answer"}` |
+| `POST /api/conversations/{id}/messages` `{"text", "sender"?, "callback_url"?, "agent"?}` | `200 {"conversation", "session", "answer"}` |
 | … mit `callback_url` | sofort `202`, später `POST` an die URL mit demselben JSON (bei Fehler `"error"`), Header `X-Captain-Conversation`, 3 Wiederholungen |
 | `DELETE /api/conversations/{id}` | `200` vergessen (wie `!neu`), `404` unbekannt |
 | `GET /api/health` | `200`, ohne Token |
@@ -104,19 +106,120 @@ dann besser hinter TLS-Proxy).
   (`gitlab:42:mr-7`). Gleiche ID = gleiche Session, auch nach Neustart.
 - Anfragen derselben ID laufen nacheinander, verschiedene parallel
   (höchstens 64 offen, sonst `503`).
-- Fehler: `400` Eingabe, `401` Token, `409` abgebrochen, `502` opencode, `413`
-  über 1 MiB.
+- Fehler: `400` Eingabe oder Agent nicht erlaubt, `401` Token, `409`
+  abgebrochen oder anderer Agent, `502` opencode, `413` über 1 MiB.
 - Steuerung per Text: Was das Modell tun soll (Review, Format, Sprache),
   steht einfach in `text`.
 
 Beispiel n8n: GitLab-Webhook → HTTP-Request an
 `/api/conversations/gitlab:{{project}}:mr-{{iid}}/messages` mit
-`callback_url` eines zweiten n8n-Webhooks → der postet `answer` als
-MR-Kommentar. Folgekommentare an dieselbe ID landen in derselben Session.
+`callback_url` eines zweiten n8n-Webhooks. Mit dem Agenten `reviewer` postet
+die Session selbst in den MR (siehe [Agenten](#agenten-im-rest-kanal)), der
+Callback meldet dann nur Erfolg bzw. Fehler. Ohne Agent kann n8n `answer`
+selbst als MR-Kommentar posten. Folgekommentare an dieselbe ID landen in
+derselben Session.
 Beim MR-Close/Merge `DELETE /api/conversations/{id}` – sonst räumt spätestens
 der Janitor auf (`SESSION_MAX_IDLE`); ein Kommentar danach startet eine
-Session **ohne** Verlauf, n8n muss dann den nötigen Kontext (MR-Beschreibung,
-Diff) mitschicken.
+Session **ohne** Verlauf. Mit dem Umschlag (siehe unten) ist das unkritisch,
+der Reviewer holt sich MR und Discussions selbst.
+
+## Agenten im REST-Kanal
+
+`"agent": "reviewer"` lässt die Unterhaltung mit einem eigenen opencode-Agenten
+laufen (eigener Systemprompt, eigene Tools). n8n nennt nur den Namen, Captain
+entscheidet:
+
+- Erlaubt sind nur Namen aus `CAPTAIN_REST_AGENTS`, sonst `400`. Mattermost
+  wählt nie einen Agenten.
+- Der Agent wird beim ersten POST am Key gemerkt (`sessions.json`, Feld
+  `agent`) und beim Anlegen der opencode-Session gesetzt. Folge-POSTs ohne
+  `agent` laufen mit ihm weiter.
+- Anderer Agent als bisher, oder `agent` für eine Unterhaltung, die schon
+  ohne läuft → `409`. Kein stiller Neustart, weil der den Verlauf verwerfen
+  würde. Wechseln: erst `DELETE`, das vergisst auch den Agenten. Der Janitor
+  behält ihn.
+- Agent später aus `CAPTAIN_REST_AGENTS` entfernt → `400`, bis `DELETE`.
+
+**Definition** in der Admin-Config (`config/opencode.jsonc`, Block `agents`,
+Beispiel `reviewer` in der Vorlage): nur `system`, `description`, `model`,
+`steps`, immer `mode: "primary"`, keine eingebauten Namen (`build`, `plan`,
+…) und keine `permissions`.
+
+**Rechte:** Wie jede Session nur Dateien im eigenen Verzeichnis, **keine
+Shell**. Dazu kommen nur die Tools aus `CAPTAIN_AGENT_TOOLS` für diesen Agenten
+(MCP-Tools `<server>_<tool>`, `*` am Ende erlaubt, eingebaute Aktionen wie
+`shell` werden beim Start abgelehnt). Alle anderen Sessions, auch Mattermost,
+bekommen diese Tools ausdrücklich **nicht**, selbst wenn die Admin-Config sie
+global freigibt. Die Regeln stehen beim Anlegen der Session fest. Nach einer
+Änderung gelten sie also erst für neue Sessions.
+
+**GitLab-Review** (Beispiel): Ein Remote-MCP-Server mit GitLab-Tools (z. B.
+`zereight/gitlab-mcp` per HTTP oder der eigene MCP-Server) läuft mit dem
+Bot-Token (Rolle Reporter, Scopes `api` + `read_repository`). Der Token
+bleibt im MCP-Server bzw. in `mcp.env` (`{env:MCP_…}` im Header) und
+erreicht weder Nachricht noch Session.
+
+```sh
+# .env
+CAPTAIN_REST_AGENTS=reviewer
+CAPTAIN_AGENT_TOOLS=reviewer: gitlab_get_merge_request gitlab_get_merge_request_diffs gitlab_get_file_contents gitlab_create_merge_request_note
+```
+
+Die Tool-Namen hängen vom MCP-Server ab (`<server>_<tool>`; Server-Name aus
+`mcp.servers`). Der Reviewer liest Diff und Dateien über diese Tools, legt
+Notizen im Session-Verzeichnis ab und postet selbst einen Sammelkommentar.
+
+### Umschlag (n8n → Reviewer)
+
+n8n schickt **keinen Diff**, nur einen kleinen Umschlag als JSON im Feld
+`text`. Große Diffs würden `MAX_TEXT` sprengen, und die GitLab-API kürzt sie
+ohnehin. Den Rest holt der Agent selbst über die GitLab-Tools. Die
+Conversation-ID ist fest pro MR: `gitlab:<projekt-id>:mr-<iid>`. Alle Events
+eines MR gehen an dieselbe ID, Close/Merge → `DELETE`.
+
+```json
+POST /api/conversations/gitlab:42:mr-7/messages
+{
+  "agent": "reviewer",
+  "sender": "GitLab",
+  "callback_url": "https://n8n.intern/webhook/captain-review",
+  "text": "{\"captain_review\": 1, \"event\": \"open\", \"project\": {\"id\": 42, \"path\": \"team/service\"}, \"mr\": {\"iid\": 7, \"url\": \"https://gitlab.intern/team/service/-/merge_requests/7\", \"title\": \"…\", \"description\": \"…\", \"author\": \"mmuster\", \"source_branch\": \"feature/x\", \"target_branch\": \"main\", \"diff_refs\": {\"base_sha\": \"…\", \"start_sha\": \"…\", \"head_sha\": \"…\"}}}"
+}
+```
+
+Der Umschlag aufgeklappt:
+
+```json
+{
+  "captain_review": 1,
+  "event": "open",
+  "project": { "id": 42, "path": "team/service" },
+  "mr": {
+    "iid": 7,
+    "url": "https://gitlab.intern/team/service/-/merge_requests/7",
+    "title": "…", "description": "…", "author": "mmuster",
+    "source_branch": "feature/x", "target_branch": "main",
+    "diff_refs": { "base_sha": "…", "start_sha": "…", "head_sha": "…" }
+  },
+  "push": { "oldrev": "…", "newrev": "…" },
+  "note": { "id": 1234, "discussion_id": "…", "author": "kkollege", "body": "…" },
+  "pipeline": { "id": 5678, "status": "failed" }
+}
+```
+
+| `event` | Wann | Zusatzfeld | Der Agent … |
+|---|---|---|---|
+| `open` | MR geöffnet (oder Draft → Ready) | – | prüft den ganzen MR, postet einen Sammelkommentar |
+| `update` | neuer Push | `push` | prüft nur `oldrev..newrev`, ergänzt einen Kommentar |
+| `note` | Kommentar, der den Bot erwähnt bzw. auf ihn antwortet | `note` | antwortet in derselben Discussion |
+| `pipeline` | Pipeline fertig | `pipeline` | wertet Ergebnis und Job-Logs aus, falls relevant |
+
+Felder kommen 1:1 aus dem GitLab-Webhook (`object_attributes`, `project`,
+`user`). `captain_review` ist die Formatversion. Selbst holt der Agent: Diff
+zwischen den SHAs, Dateien des Source-Branches, Pipeline-Status und
+Job-Logs (Ersatz fürs Bauen), bestehende Discussions (nichts doppelt
+anmerken), ggf. das verlinkte Ticket und Review-Richtlinien aus der
+Wissensbasis. Die passenden Tools müssen in `CAPTAIN_AGENT_TOOLS` stehen.
 
 ## Aufräumen
 
@@ -152,8 +255,11 @@ Neue Nachricht nach dem Aufräumen:
   `models.*.limit`), weitere Modelle nur für `!modell`-Wechsel
 - `mcp.servers.*` nur `type: "remote"`
 - `permissions` (`{action, resource, effect}`), `compaction`
+- `agents.<eigener Name>` nur `system`, `description`, `model`, `steps`
+  (siehe [Agenten](#agenten-im-rest-kanal))
 
-Alles andere (`plugins`, lokale MCP-Server, `agents`, `commands`, `skills`,
+Alles andere (`plugins`, lokale MCP-Server, eingebaute Agenten und
+Agent-Rechte, `commands`, `skills`,
 `instructions`, `policies`, …) wird mit Warnung verworfen – das würde die
 Sicherheit aushebeln. Darüber liegen die Sicherheitsbasis im Image
 (`* * deny`, Policies gegen Shell, Websuche, Subagenten, Skills) und die

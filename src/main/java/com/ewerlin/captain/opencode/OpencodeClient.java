@@ -250,7 +250,8 @@ public class OpencodeClient implements OpencodeApi, AutoCloseable {
     // -- Sessions ------------------------------------------------------------
 
     @Override
-    public String createSession(String directory, String title, List<Rule> permissions, String sessionId) {
+    public String createSession(String directory, String title, List<Rule> permissions, String sessionId,
+            String agent) {
         ObjectNode body = Json.object();
         body.set("location", Json.object().put("directory", directory));
         if (title != null && !title.isEmpty()) {
@@ -261,6 +262,9 @@ public class OpencodeClient implements OpencodeApi, AutoCloseable {
         }
         if (sessionId != null && !sessionId.isEmpty()) {
             body.put("id", sessionId);
+        }
+        if (agent != null && !agent.isEmpty()) {
+            body.put("agent", agent);
         }
         JsonNode data = request("POST", "/api/session", null, null, body);
         if (data == null || !data.isObject() || !data.has("id")) {

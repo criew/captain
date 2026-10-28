@@ -92,9 +92,31 @@ test("gesperrte Schluessel und lokale MCP-Server", () => {
   const clean = sanitize(cfg, (w) => warnings.push(w));
   assert.deepEqual(Object.keys(clean), ["mcp"]);
   assert.deepEqual(clean.mcp.servers, { r: { type: "remote", url: "https://x", oauth: false, codemode: false } });
-  for (const k of ["plugins", "agents", "default_agent", "commands", "skills", "instructions", "references", "shell", "enterprise", "experimental", "policies"]) {
+  assert.ok(warnings.some((w) => w.includes("agents.build")));
+  for (const k of ["plugins", "default_agent", "commands", "skills", "instructions", "references", "shell", "enterprise", "experimental", "policies"]) {
     assert.ok(warnings.some((w) => w.includes(`"${k}"`)), k);
   }
+});
+
+test("agents: nur eigene Namen, Prompt/Modell/Schritte, immer primary, keine Rechte", () => {
+  const warnings = [];
+  const clean = sanitize({ agents: {
+    reviewer: { system: "Du pruefst MRs.", description: "MR-Review", model: "llm/m", steps: 40, mode: "subagent",
+      permissions: [{ action: "shell", resource: "*", effect: "allow" }], tools: { bash: true } },
+    plan: { system: "x" },
+    "../x": { system: "x" },
+    leer: { description: "ohne Prompt" },
+    kaputt: { system: "x", model: "ohne-slash", steps: 0 },
+  } }, (w) => warnings.push(w));
+  assert.deepEqual(clean.agents, {
+    reviewer: { system: "Du pruefst MRs.", description: "MR-Review", model: "llm/m", steps: 40, mode: "primary" },
+    kaputt: { system: "x", mode: "primary" },
+  });
+  for (const w of ["agents.reviewer.mode", "agents.reviewer.permissions", "agents.reviewer.tools", "agents.plan", "agents.../x",
+    "agents.leer", "agents.kaputt.model", "agents.kaputt.steps"]) {
+    assert.ok(warnings.some((x) => x.includes(w)), w);
+  }
+  assert.equal(sanitize({ agents: { plan: { system: "x" } } }).agents, undefined);
 });
 
 test("Provider: nur eingebaute Pakete, Unterbaeume per Allowlist", () => {

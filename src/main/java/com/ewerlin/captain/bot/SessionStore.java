@@ -25,8 +25,8 @@ import tools.jackson.databind.JsonNode;
 /**
  * Session-Store: Session-Key → opencode-Session plus Einstellungen.
  *
- * <p>Eintrag: {@code {opencode_session_id, directory, last_used, model, variant, expired_at}};
- * fehlende Felder werden weggelassen. Modell und Variante hängen am Key, nicht an der Session –
+ * <p>Eintrag: {@code {opencode_session_id, directory, last_used, model, variant, agent, expired_at}};
+ * fehlende Felder werden weggelassen. Modell, Variante und Agent (nur REST) hängen am Key, nicht an der Session –
  * {@link #reset} behält sie. {@code last_used} (ms seit der Epoche) ist die letzte Nutzung der
  * Session, {@code expired_at} markiert eine vom Janitor aufgeräumte Session ({@link #expire}).
  * {@code directory} ist {@code <SESSIONS_DIR>/<opencode_session_id>} (z. B.
@@ -41,7 +41,7 @@ public class SessionStore {
 
     public static final List<String> SESSION_FIELDS = List.of("opencode_session_id", "directory", "last_used");
     public static final String EXPIRED_AT = "expired_at";
-    public static final List<String> SETTING_FIELDS = List.of("model", "variant");
+    public static final List<String> SETTING_FIELDS = List.of("model", "variant", "agent");
 
     private final Path path;
     private final Object lock = new Object();
@@ -226,7 +226,7 @@ public class SessionStore {
         }
     }
 
-    /** Setzt {@code model}/{@code variant}; {@code null} als Wert entfernt ihn. */
+    /** Setzt {@code model}/{@code variant}/{@code agent}; {@code null} als Wert entfernt ihn. */
     public Map<String, String> setSetting(String key, Map<String, String> values) {
         for (String name : values.keySet()) {
             if (!SETTING_FIELDS.contains(name)) {

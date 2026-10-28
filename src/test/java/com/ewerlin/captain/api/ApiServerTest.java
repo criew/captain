@@ -35,13 +35,25 @@ class ApiServerTest {
         final List<String> calls = Collections.synchronizedList(new ArrayList<>());
 
         @Override
-        public Answer ask(String id, String text, String sender) {
-            calls.add(id + "|" + text + "|" + sender);
+        public Answer ask(String id, String text, String sender, String agent) {
+            calls.add(id + "|" + text + "|" + sender + (agent == null ? "" : "|" + agent));
+            checkAgent(id, agent);
             return switch (text) {
                 case "kaputt" -> throw new OpencodeException("HTTP 500");
                 case "stopp" -> throw new PromptInterruptedException("abgebrochen");
                 default -> new Answer("ses_" + id.length(), "Antwort: " + text);
             };
+        }
+
+        /** Erlaubt ist nur {@code reviewer}; Unterhaltung {@code belegt} läuft mit {@code anderer}. */
+        @Override
+        public void checkAgent(String id, String agent) {
+            if (agent != null && !agent.equals("reviewer")) {
+                throw new AgentRejectedException(400, "Agent \"" + agent + "\" ist nicht erlaubt");
+            }
+            if (agent != null && id.equals("belegt")) {
+                throw new AgentRejectedException(409, "Unterhaltung läuft mit Agent \"anderer\"");
+            }
         }
 
         @Override
@@ -126,6 +138,25 @@ class ApiServerTest {
         assertThat(Json.parse(r.body()).path("error").asString()).contains("HTTP 500");
         assertThat(Json.parse(r.body()).has("_status")).isFalse();
         assertThat(post("x", "{\"text\": \"stopp\"}").statusCode()).isEqualTo(409);
+    }
+
+    @Test
+    void agentIsCheckedBeforeAnswering() throws Exception {
+        HttpResponse<String> ok = post("mr-1", "{\"text\": \"review\", \"agent\": \" reviewer \"}");
+        assertThat(ok.statusCode()).isEqualTo(200);
+        assertThat(conversations.calls).containsExactly("mr-1|review|null|reviewer");
+
+        conversations.calls.clear();
+        assertThat(post("mr-1", "{\"text\": \"a\", \"agent\": \"build\"}").statusCode()).isEqualTo(400);
+        assertThat(post("mr-1", "{\"text\": \"a\", \"agent\": \"\"}").statusCode()).isEqualTo(400);
+        assertThat(post("mr-1", "{\"text\": \"a\", \"agent\": 5}").statusCode()).isEqualTo(400);
+        HttpResponse<String> conflict = post("belegt", "{\"text\": \"a\", \"agent\": \"reviewer\"}");
+        assertThat(conflict.statusCode()).isEqualTo(409);
+        assertThat(Json.parse(conflict.body()).path("error").asString()).contains("anderer");
+        // auch mit callback_url sofort, nicht erst im Callback
+        assertThat(post("mr-1", "{\"text\": \"a\", \"agent\": \"build\", \"callback_url\": \"http://127.0.0.1:1/x\"}")
+                .statusCode()).isEqualTo(400);
+        assertThat(conversations.calls).isEmpty();
     }
 
     @Test
