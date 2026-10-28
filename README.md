@@ -14,7 +14,7 @@ Betrieb, Konfiguration und Sicherheitsdetails: **[docs/betrieb.md](docs/betrieb.
   Antwort wächst live in *einem* Post, Tool-Aufrufe erscheinen als Statuszeile.
 - **REST:** `POST /api/conversations/{id}/messages` – gleiche `id` = gleiche
   Session. Synchron oder mit `callback_url` asynchron, z. B. für
-  GitLab-MR → n8n → Review-Kommentar. Optional `"agent": "reviewer"` aus
+  GitLab-MR → n8n → Review, das der Agent selbst in den MR postet. Optional `"agent": "reviewer"` aus
   `CAPTAIN_REST_AGENTS` mit eigenem Prompt und eigenen MCP-Tools.
 - **Warteschlange:** pro Session eine Ausführung; was währenddessen kommt,
   bekommt ⏳ und wird gebündelt beantwortet.

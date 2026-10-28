@@ -113,12 +113,15 @@ dann besser hinter TLS-Proxy).
 
 Beispiel n8n: GitLab-Webhook → HTTP-Request an
 `/api/conversations/gitlab:{{project}}:mr-{{iid}}/messages` mit
-`callback_url` eines zweiten n8n-Webhooks → der postet `answer` als
-MR-Kommentar. Folgekommentare an dieselbe ID landen in derselben Session.
+`callback_url` eines zweiten n8n-Webhooks. Mit dem Agenten `reviewer` postet
+die Session selbst in den MR (siehe [Agenten](#agenten-im-rest-kanal)), der
+Callback meldet dann nur Erfolg bzw. Fehler. Ohne Agent kann n8n `answer`
+selbst als MR-Kommentar posten. Folgekommentare an dieselbe ID landen in
+derselben Session.
 Beim MR-Close/Merge `DELETE /api/conversations/{id}` – sonst räumt spätestens
 der Janitor auf (`SESSION_MAX_IDLE`); ein Kommentar danach startet eine
-Session **ohne** Verlauf, n8n muss dann den nötigen Kontext (MR-Beschreibung,
-Diff) mitschicken.
+Session **ohne** Verlauf. Mit dem Umschlag (siehe unten) ist das unkritisch,
+der Reviewer holt sich MR und Discussions selbst.
 
 ## Agenten im REST-Kanal
 
