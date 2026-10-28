@@ -1,7 +1,10 @@
 package com.ewerlin.captain.config;
 
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.ewerlin.captain.policy.SharedDir;
 
@@ -17,6 +20,8 @@ import com.ewerlin.captain.policy.SharedDir;
  *                      unter {@link SharedDir#MOUNT}, {@code null} = aus
  * @param apiToken      Bearer-Token des REST-Eingabekanals; {@code null} = REST aus
  * @param sessionMaxIdle Sessions so lange unbenutzt → aufräumen; {@link Duration#ZERO} = nie
+ * @param restAgents    per REST wählbare opencode-Agenten → Tools, die nur deren Sessions bekommen
+ *                      ({@code CAPTAIN_REST_AGENTS}, {@code CAPTAIN_AGENT_TOOLS}); leer = keiner
  */
 public record CaptainConfig(
         String mmUrl,
@@ -35,10 +40,19 @@ public record CaptainConfig(
         List<String> webfetchAllow,
         String sharedDir,
         String apiToken,
-        Duration sessionMaxIdle) {
+        Duration sessionMaxIdle,
+        Map<String, List<String>> restAgents) {
 
     public CaptainConfig {
         webfetchAllow = List.copyOf(webfetchAllow);
+        Map<String, List<String>> agents = new LinkedHashMap<>();
+        restAgents.forEach((name, tools) -> agents.put(name, List.copyOf(tools)));
+        restAgents = Collections.unmodifiableMap(agents);
+    }
+
+    /** Alle Tools, die einem REST-Agenten vorbehalten sind (andere Sessions bekommen sie nicht). */
+    public List<String> agentTools() {
+        return restAgents.values().stream().flatMap(List::stream).distinct().toList();
     }
 
     public boolean shared() {
@@ -62,7 +76,7 @@ public record CaptainConfig(
                 .catchupMaxAge(catchupMaxAge).maxAttachmentMb(maxAttachmentMb)
                 .historyMaxPosts(historyMaxPosts).historyMaxChars(historyMaxChars)
                 .webfetchAllow(webfetchAllow).sharedDir(sharedDir).apiToken(apiToken)
-                .sessionMaxIdle(sessionMaxIdle);
+                .sessionMaxIdle(sessionMaxIdle).restAgents(restAgents);
     }
 
     /** Baut eine Konfiguration mit den Standardwerten aus {@link ConfigLoader}. */
@@ -84,6 +98,7 @@ public record CaptainConfig(
         private String sharedDir;
         private String apiToken;
         private Duration sessionMaxIdle = Duration.ofDays(14);
+        private Map<String, List<String>> restAgents = Map.of();
 
         public Builder mmUrl(String v) { mmUrl = v; return this; }
         public Builder mmBotToken(String v) { mmBotToken = v; return this; }
@@ -102,11 +117,13 @@ public record CaptainConfig(
         public Builder sharedDir(String v) { sharedDir = v; return this; }
         public Builder apiToken(String v) { apiToken = v; return this; }
         public Builder sessionMaxIdle(Duration v) { sessionMaxIdle = v; return this; }
+        public Builder restAgents(Map<String, List<String>> v) { restAgents = v; return this; }
 
         public CaptainConfig build() {
             return new CaptainConfig(mmUrl, mmBotToken, opencodeUrl, opencodePassword, opencodeModel,
                     opencodeVariant, sessionsDir, dataDir, systemPrompt, catchupMaxAge,
-                    maxAttachmentMb, historyMaxPosts, historyMaxChars, webfetchAllow, sharedDir, apiToken, sessionMaxIdle);
+                    maxAttachmentMb, historyMaxPosts, historyMaxChars, webfetchAllow, sharedDir, apiToken, sessionMaxIdle,
+                    restAgents);
         }
     }
 }

@@ -2,8 +2,8 @@
 // festzurren, dann `opencode serve` starten.
 //
 // Die Admin-Config (/etc/captain/opencode.jsonc, im Betrieb vom Host
-// eingebunden) darf nur Provider, Modelle, Limits, Remote-MCP-Server und
-// Freigaben setzen. opencode (2.0.20–2.2.0) fuehrt u. a. "plugins", "agents",
+// eingebunden) darf nur Provider, Modelle, Limits, Remote-MCP-Server,
+// Freigaben und eigene Agenten (nur Prompt/Modell, keine Rechte) setzen. opencode (2.0.20–2.2.0) fuehrt u. a. "plugins", "agents",
 // "commands", "skills", "instructions", "references", "shell", "enterprise"
 // und lokale MCP-Server (type "local" = beliebiger Prozess als root) aus
 // JEDER Config-Quelle zusammen – die feste Basis kann sie dort nicht
@@ -149,6 +149,14 @@ const PROVIDER = { name: str, package: (v) => PACKAGES.has(v), settings: SETTING
 const REMOTE = { type: (v) => v === "remote", url: str, headers: strMap, disabled: bool, timeout: num };
 const COMPACTION = { auto: bool, buffer: num, keep: { tokens: num } };
 const RULE = { action: str, resource: str, effect: (v) => v === "allow" || v === "deny" };
+const MODEL_REF = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._:@+\/-]+$/;
+// Eigene Agenten (Captain waehlt sie per REST, CAPTAIN_REST_AGENTS): nur Prompt, Beschreibung,
+// Modell und Schrittgrenze. Keine "permissions" – die Rechte setzt Captain pro Session (Agent-Regeln
+// stehen davor und wuerden ohnehin ueberstimmt); "mode" ist immer "primary".
+const AGENT = { system: str, description: str, model: (v) => str(v) && MODEL_REF.test(v), steps: (v) => Number.isInteger(v) && v > 0 };
+export const AGENT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+// Eingebaute Agenten von opencode – nicht umbaubar (Mattermost-Sessions laufen mit dem Standard-Agenten).
+export const BUILTIN_AGENTS = new Set(["build", "plan", "general", "explore", "compaction", "title", "summary"]);
 
 function pick(obj, schema, path, warn) {
   const out = {};
@@ -171,7 +179,7 @@ export function sanitize(cfg, warn = () => {}) {
   for (const [key, value] of Object.entries(isObj(cfg) ? cfg : {})) {
     if (key === "$schema") continue;
     if (key === "model") {
-      if (str(value) && /^[A-Za-z0-9._-]+\/[A-Za-z0-9._:@+\/-]+$/.test(value)) out.model = value;
+      if (str(value) && MODEL_REF.test(value)) out.model = value;
       else warn(`model: ungueltig ${JSON.stringify(value)} – verworfen`);
     } else if (key === "providers" && isObj(value)) {
       out.providers = {};
@@ -212,6 +220,20 @@ export function sanitize(cfg, warn = () => {}) {
         if (!ok) warn(`permissions: nur {action, resource, effect: allow|deny} erlaubt ("ask" wuerde headless haengen) – verworfen: ${JSON.stringify(r)}`);
         return ok;
       });
+    } else if (key === "agents" && isObj(value)) {
+      const agents = {};
+      for (const [name, a] of Object.entries(value)) {
+        if (!AGENT_NAME.test(name) || BUILTIN_AGENTS.has(name.toLowerCase())) {
+          warn(`agents.${name}: ungueltiger Name oder eingebauter Agent – verworfen`);
+          continue;
+        }
+        if (!isObj(a) || !str(a.system)) {
+          warn(`agents.${name}: Objekt mit "system" (Text) erwartet – verworfen`);
+          continue;
+        }
+        agents[name] = { ...pick(a, AGENT, `agents.${name}`, warn), mode: "primary" };
+      }
+      if (Object.keys(agents).length) out.agents = agents;
     } else if (key === "compaction" && isObj(value)) {
       out.compaction = pick(value, COMPACTION, "compaction", warn);
     } else {

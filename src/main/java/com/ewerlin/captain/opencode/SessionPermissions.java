@@ -36,6 +36,13 @@ public final class SessionPermissions {
     private SessionPermissions() {
     }
 
+    /** Eingebaute Aktion (Datei-Tools oder {@link #DENIED_ACTIONS}) – nie als Agent-Tool freigebbar. */
+    public static boolean reserved(String tool) {
+        String name = tool.endsWith("*") ? tool.substring(0, tool.length() - 1) : tool;
+        return name.isEmpty() || FILE_ACTIONS.contains(name) || DENIED_ACTIONS.stream()
+                .anyMatch(d -> d.endsWith("*") ? name.startsWith(d.substring(0, d.length() - 1)) : d.equals(name));
+    }
+
     /**
      * Session-Regeln für {@code directory}.
      *
@@ -58,7 +65,8 @@ public final class SessionPermissions {
      * Schluss {@link SharedDir#sessionRules}: {@code external_directory} und {@code read} für
      * {@code /shared} und darunter erlaubt, {@code edit} dort verboten.
      */
-    public static List<Rule> of(String directory, List<String> webfetch, boolean shared) {
+    public static List<Rule> of(String directory, List<String> webfetch, boolean shared, List<String> agentTools,
+            List<String> allowTools) {
         String root = directory.replaceAll("/+$", "");
         List<Rule> rules = new ArrayList<>();
         for (String a : FILE_ACTIONS) {
@@ -78,12 +86,22 @@ public final class SessionPermissions {
                 }
             }
         }
+        for (String tool : agentTools) {
+            rules.add(Rule.deny(tool, "*"));
+        }
+        for (String tool : allowTools) {
+            rules.add(Rule.allow(tool, "*"));
+        }
         for (String a : DENIED_ACTIONS) {
             rules.add(Rule.deny(a, "*"));
         }
         rules.addAll(Webfetch.sessionRules(webfetch));
         rules.addAll(SharedDir.sessionRules(shared));
         return rules;
+    }
+
+    public static List<Rule> of(String directory, List<String> webfetch, boolean shared) {
+        return of(directory, webfetch, shared, List.of(), List.of());
     }
 
     public static List<Rule> of(String directory) {

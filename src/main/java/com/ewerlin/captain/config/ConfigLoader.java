@@ -19,6 +19,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import com.ewerlin.captain.opencode.SessionPermissions;
 import com.ewerlin.captain.policy.SharedDir;
 import com.ewerlin.captain.policy.Webfetch;
 import com.ewerlin.captain.util.Json;
@@ -46,7 +47,8 @@ public final class ConfigLoader {
     static final List<String> OPTIONAL = List.of(
             "OPENCODE_PASSWORD", "OPENCODE_MODEL", "OPENCODE_VARIANT",
             "CAPTAIN_SYSTEM_PROMPT", "CAPTAIN_SYSTEM_PROMPT_FILE", "CAPTAIN_WEBFETCH_ALLOW",
-            "CAPTAIN_SHARED_DIR", "CAPTAIN_HOME", "CAPTAIN_API_TOKEN");
+            "CAPTAIN_SHARED_DIR", "CAPTAIN_HOME", "CAPTAIN_API_TOKEN", "CAPTAIN_REST_AGENTS",
+            "CAPTAIN_AGENT_TOOLS");
     public static final Map<String, String> DEFAULTS = defaults();
     public static final String DEFAULT_SYSTEM_PROMPT =
             "Du bist **Captain**, ein hilfsbereiter, sachlicher Assistent.";
@@ -57,6 +59,10 @@ public final class ConfigLoader {
     private static final Map<String, Integer> UNITS = Map.of("", 1, "s", 1, "m", 60, "h", 3600, "d", 86400);
     private static final Pattern FLOAT = Pattern.compile("[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?");
     private static final Pattern INT = Pattern.compile("[+-]?\\d+");
+    /** Name eines opencode-Agenten ({@code CAPTAIN_REST_AGENTS}). */
+    public static final Pattern AGENT = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_-]{0,63}");
+    /** Tool-Name ({@code <server>_<tool>}), optional mit {@code *} am Ende. */
+    private static final Pattern TOOL = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\\*?");
 
     private ConfigLoader() {
     }
@@ -121,7 +127,8 @@ public final class ConfigLoader {
                 webfetch(values.get("CAPTAIN_WEBFETCH_ALLOW")),
                 shared(values.get("CAPTAIN_SHARED_DIR"), values.get("CAPTAIN_HOME")),
                 apiToken(values.get("CAPTAIN_API_TOKEN")),
-                parseDuration(values.get("SESSION_MAX_IDLE")));
+                parseDuration(values.get("SESSION_MAX_IDLE")),
+                restAgents(values.get("CAPTAIN_REST_AGENTS"), values.get("CAPTAIN_AGENT_TOOLS")));
     }
 
     public static CaptainConfig load(Function<String, String> env) {
@@ -240,6 +247,50 @@ public final class ConfigLoader {
                     + " Zeichen ohne Leerzeichen haben (z. B. openssl rand -hex 32)");
         }
         return token;
+    }
+
+    /**
+     * {@code CAPTAIN_REST_AGENTS} (kommagetrennte Agent-Namen) und {@code CAPTAIN_AGENT_TOOLS}
+     * ({@code agent: tool tool; agent2: tool}, Tools durch Komma oder Leerzeichen getrennt) →
+     * Agent → vorbehaltene Tools.
+     */
+    static Map<String, List<String>> restAgents(Object agents, Object tools) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        for (String name : text(agents).split(",")) {
+            name = name.strip();
+            if (name.isEmpty()) {
+                continue;
+            }
+            if (!AGENT.matcher(name).matches()) {
+                throw new ConfigException("CAPTAIN_REST_AGENTS: ungültiger Agent-Name " + repr(name)
+                        + " (erlaubt: A-Z a-z 0-9 _ -)");
+            }
+            out.put(name, new ArrayList<>());
+        }
+        for (String part : text(tools).split(";")) {
+            if (part.isBlank()) {
+                continue;
+            }
+            int colon = part.indexOf(':');
+            String name = colon < 0 ? "" : part.substring(0, colon).strip();
+            if (!out.containsKey(name)) {
+                throw new ConfigException("CAPTAIN_AGENT_TOOLS: " + repr(part.strip())
+                        + " – erwartet \"<agent>: <tool> …\" mit einem Agenten aus CAPTAIN_REST_AGENTS");
+            }
+            for (String tool : part.substring(colon + 1).split("[,\\s]+")) {
+                if (tool.isEmpty()) {
+                    continue;
+                }
+                if (!TOOL.matcher(tool).matches() || SessionPermissions.reserved(tool)) {
+                    throw new ConfigException("CAPTAIN_AGENT_TOOLS: Tool " + repr(tool) + " nicht erlaubt"
+                            + " (nur MCP-Tools <server>_<tool>, keine eingebauten Aktionen)");
+                }
+                if (!out.get(name).contains(tool)) {
+                    out.get(name).add(tool);
+                }
+            }
+        }
+        return out;
     }
 
     private static String systemPrompt(Map<String, Object> values) {

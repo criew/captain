@@ -5,6 +5,7 @@ import static com.ewerlin.captain.bot.BotTestSupport.slash;
 import static com.ewerlin.captain.bot.BotTestSupport.waitFor;
 import static com.ewerlin.captain.bot.BotTestSupport.waitIdle;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,12 +24,14 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import com.ewerlin.captain.api.AgentRejectedException;
 import com.ewerlin.captain.config.CaptainConfig;
 import com.ewerlin.captain.mattermost.Post;
 import com.ewerlin.captain.opencode.OpencodeException;
 import com.ewerlin.captain.opencode.PromptInterruptedException;
 import com.ewerlin.captain.opencode.Rule;
 import com.ewerlin.captain.opencode.SessionGoneException;
+import com.ewerlin.captain.policy.RuleEval;
 import com.ewerlin.captain.util.Json;
 
 import tools.jackson.databind.JsonNode;
@@ -559,6 +562,76 @@ class BotTest {
         assertThat(Path.of(dir)).doesNotExist();
         assertThat(b.forget("x")).isFalse();
         assertThat(b.ask("x", "zwei", null).session()).isNotEqualTo(sid);
+    }
+
+    /** Bot mit REST-Agent {@code reviewer} (Tools {@code gitlab_note}, {@code gitlab_diff}). */
+    private Bot reviewerBot() {
+        return new Bot(b.cfg.toBuilder().restAgents(Map.of("reviewer", List.of("gitlab_note", "gitlab_diff"))).build(),
+                mm, oc, store);
+    }
+
+    @Test
+    void askWithAgentCreatesAgentSessionAndRemembersIt() {
+        Bot r = reviewerBot();
+        try {
+            String sid = r.ask("mr-1", "review", null, "reviewer").session();
+            assertThat(oc.created.getFirst().agent()).isEqualTo("reviewer");
+            assertThat(store.get("rest:mr-1").get("agent")).isEqualTo("reviewer");
+            List<Rule> rules = oc.created.getFirst().permissions();
+            assertThat(RuleEval.evaluate(rules, "gitlab_note", "*")).isEqualTo("allow");
+            assertThat(RuleEval.evaluate(rules, "shell", "git clone x")).isEqualTo("deny");
+
+            // Folge-POST ohne agent: gemerkter Agent, gleiche Session
+            assertThat(r.ask("mr-1", "Kommentar", null, null).session()).isEqualTo(sid);
+            assertThat(r.ask("mr-1", "noch einer", null, "reviewer").session()).isEqualTo(sid);
+            assertThat(oc.created).hasSize(1);
+
+            // Unterhaltung ohne Agent: Agent-Tools verboten, kein Agent
+            r.ask("chat", "hallo", null, null);
+            assertThat(oc.created.get(1).agent()).isNull();
+            assertThat(RuleEval.evaluate(oc.created.get(1).permissions(), "gitlab_note", "*")).isEqualTo("deny");
+        } finally {
+            r.stop();
+        }
+    }
+
+    @Test
+    void askRejectsUnknownOrChangedAgent() {
+        Bot r = reviewerBot();
+        try {
+            assertThatThrownBy(() -> r.ask("mr-1", "x", null, "build"))
+                    .isInstanceOfSatisfying(AgentRejectedException.class, e -> assertThat(e.status()).isEqualTo(400));
+            assertThat(store.get("rest:mr-1")).isNull();
+
+            r.ask("plain", "x", null, null); // läuft ohne Agent
+            assertThatThrownBy(() -> r.checkAgent("plain", "reviewer"))
+                    .isInstanceOfSatisfying(AgentRejectedException.class, e -> assertThat(e.status()).isEqualTo(409));
+
+            r.ask("mr-1", "x", null, "reviewer");
+            store.setSetting("rest:mr-1", Map.of("agent", "alt")); // z. B. aus CAPTAIN_REST_AGENTS entfernt
+            assertThatThrownBy(() -> r.ask("mr-1", "y", null, null))
+                    .isInstanceOfSatisfying(AgentRejectedException.class, e -> assertThat(e.status()).isEqualTo(400));
+            assertThat(oc.prompts).hasSize(2);
+        } finally {
+            r.stop();
+        }
+        // ohne CAPTAIN_REST_AGENTS ist jeder Agent abgelehnt
+        assertThatThrownBy(() -> b.checkAgent("neu", "reviewer")).isInstanceOf(AgentRejectedException.class);
+    }
+
+    @Test
+    void forgetDropsAgent() {
+        Bot r = reviewerBot();
+        try {
+            r.ask("mr-1", "review", null, "reviewer");
+            assertThat(r.forget("mr-1")).isTrue();
+            assertThat(store.get("rest:mr-1")).isNull();
+            r.checkAgent("mr-1", "reviewer"); // wieder frei
+            r.ask("mr-1", "hallo", null, null);
+            assertThat(oc.created.get(1).agent()).isNull();
+        } finally {
+            r.stop();
+        }
     }
 
     @Test

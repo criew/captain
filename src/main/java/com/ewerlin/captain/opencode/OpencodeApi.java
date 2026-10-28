@@ -12,8 +12,13 @@ public interface OpencodeApi {
      * @param permissions Session-Regeln, werden hinter die globalen Regeln gehängt (letzte passende
      *                    gewinnt, siehe {@link SessionPermissions#of}); {@code null} = keine
      * @param sessionId   eigene ID (muss mit {@code ses} beginnen), sonst vergibt opencode eine
+     * @param agent       opencode-Agent der Session; {@code null} = Standard-Agent
      */
-    String createSession(String directory, String title, List<Rule> permissions, String sessionId);
+    String createSession(String directory, String title, List<Rule> permissions, String sessionId, String agent);
+
+    default String createSession(String directory, String title, List<Rule> permissions, String sessionId) {
+        return createSession(directory, title, permissions, sessionId, null);
+    }
 
     /** Hängt dauerhafte Systemanweisungen an die Session (in Reihenfolge der Einträge). */
     void setInstructions(String sessionId, Map<String, String> entries);

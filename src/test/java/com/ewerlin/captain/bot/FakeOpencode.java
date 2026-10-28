@@ -31,7 +31,7 @@ class FakeOpencode implements OpencodeApi {
         }
     }
 
-    record Created(String sid, String directory, String title, List<Rule> permissions, String sessionId) {
+    record Created(String sid, String directory, String title, List<Rule> permissions, String sessionId, String agent) {
     }
 
     final List<Created> created = new ArrayList<>();
@@ -48,10 +48,11 @@ class FakeOpencode implements OpencodeApi {
             new ModelInfo("opencode/x", "x", List.of("low", "high")));
 
     @Override
-    public synchronized String createSession(String directory, String title, List<Rule> permissions, String sessionId) {
+    public synchronized String createSession(String directory, String title, List<Rule> permissions, String sessionId,
+            String agent) {
         assertThat(Files.isDirectory(Path.of(directory))).as("Verzeichnis muss vor der Session existieren").isTrue();
         String sid = sessionId != null ? sessionId : "ses_" + (created.size() + 1);
-        created.add(new Created(sid, directory, title, permissions, sessionId));
+        created.add(new Created(sid, directory, title, permissions, sessionId, agent));
         return sid;
     }
 

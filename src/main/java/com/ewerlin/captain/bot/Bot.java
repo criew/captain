@@ -32,6 +32,7 @@ import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.ewerlin.captain.api.AgentRejectedException;
 import com.ewerlin.captain.api.Conversations;
 import com.ewerlin.captain.config.CaptainConfig;
 import com.ewerlin.captain.mattermost.AttachmentTooLargeException;
@@ -1115,8 +1116,10 @@ public class Bot implements Conversations {
         sid = newSessionId.get();
         directory = sessionDir(sid);
         mkdirs(directory);
+        String agent = entry == null ? null : entry.get("agent");
+        List<String> own = agent == null ? List.of() : cfg.restAgents().getOrDefault(agent, List.of());
         String created = oc.createSession(directory, (key.startsWith(SessionKeys.REST) ? "REST " : "Mattermost ") + key,
-                SessionPermissions.of(directory, cfg.webfetchAllow(), cfg.shared()), sid);
+                SessionPermissions.of(directory, cfg.webfetchAllow(), cfg.shared(), cfg.agentTools(), own), sid, agent);
         if (!created.equals(sid)) {
             log.warn("{}: opencode vergab {} statt {}", key, created, sid);
             sid = created;
@@ -1127,7 +1130,7 @@ public class Bot implements Conversations {
             }
         }
         store.set(key, sid, directory, now);
-        log.info("{}: neue opencode-Session {} in {}", key, sid, directory);
+        log.info("{}: neue opencode-Session {} in {}{}", key, sid, directory, agent == null ? "" : " (Agent " + agent + ")");
         return new SessionRef(sid, directory, true, expired);
     }
 
@@ -1483,16 +1486,24 @@ public class Bot implements Conversations {
      * {@code rest:<conversation>}); blockiert bis zur fertigen Antwort.
      *
      * <p>Gleiche ID = gleiche opencode-Session, auch über Neustarts (Session-Store). Anfragen
-     * derselben ID laufen nacheinander. Modell: wie für den Key gesetzt, sonst Standard.
+     * derselben ID laufen nacheinander. Modell: wie für den Key gesetzt, sonst Standard. Agent: beim
+     * ersten Aufruf gewählt und am Key gemerkt (siehe {@link #agent}).
      *
      * @param sender Name, der vor die Nachricht gesetzt wird ({@code Name: Text}); {@code null} = keiner
+     * @param agent  opencode-Agent aus {@code CAPTAIN_REST_AGENTS}; {@code null} = gemerkter bzw. Standard
+     * @throws AgentRejectedException     Agent nicht erlaubt (400) oder Wechsel (409)
      * @throws PromptInterruptedException bei {@link #forget} oder Beenden während der Antwort
      */
     @Override
-    public Answer ask(String conversation, String text, String sender) {
+    public Answer ask(String conversation, String text, String sender, String agent) {
         String key = SessionKeys.REST + conversation;
         String prompt = sender == null || sender.isBlank() ? text : sender.strip() + ": " + text;
         try (KeyLocks.Held held = locks.lock(key)) {
+            Map<String, String> before = store.get(key);
+            String chosen = agent(key, before, agent);
+            if (chosen != null && (before == null || before.get("agent") == null)) {
+                store.setSetting(key, Map.of("agent", chosen));
+            }
             synchronized (mutex) {
                 if (stopping.isSet()) {
                     throw new PromptInterruptedException("Captain wird beendet");
@@ -1526,6 +1537,42 @@ public class Bot implements Conversations {
         }
     }
 
+    @Override
+    public void checkAgent(String conversation, String agent) {
+        String key = SessionKeys.REST + conversation;
+        agent(key, store.get(key), agent);
+    }
+
+    /**
+     * Agent der REST-Unterhaltung: der gemerkte, sonst {@code requested}; {@code null} = Standard.
+     *
+     * <p>Abgelehnt wird ein Agent, der nicht in {@code CAPTAIN_REST_AGENTS} steht (400, auch ein
+     * gemerkter, der dort nicht mehr steht), und ein Wechsel (409): Agent und Rechte stehen beim
+     * Anlegen der Session fest. Ein stiller Neustart würde den bisherigen Verlauf verwerfen; wer
+     * wirklich wechseln will, schickt vorher {@code DELETE}.
+     */
+    private String agent(String key, Map<String, String> entry, String requested) {
+        String stored = entry == null ? null : entry.get("agent");
+        if (requested != null && !cfg.restAgents().containsKey(requested)) {
+            throw new AgentRejectedException(400, "Agent \"" + requested + "\" ist nicht erlaubt (CAPTAIN_REST_AGENTS)");
+        }
+        if (stored != null && !cfg.restAgents().containsKey(stored)) {
+            throw new AgentRejectedException(400, "Agent \"" + stored + "\" dieser Unterhaltung ist nicht mehr erlaubt"
+                    + " (CAPTAIN_REST_AGENTS) – vorher DELETE");
+        }
+        if (requested == null || requested.equals(stored)) {
+            return stored;
+        }
+        if (stored != null) {
+            throw new AgentRejectedException(409, "Unterhaltung läuft mit Agent \"" + stored + "\" – vorher DELETE");
+        }
+        String sid = entry == null ? null : entry.get("opencode_session_id");
+        if (sid != null && !sid.isEmpty()) {
+            throw new AgentRejectedException(409, "Unterhaltung läuft ohne Agent – vorher DELETE");
+        }
+        return requested;
+    }
+
     private Answer askOnce(String key, String prompt, PromptOptions base, boolean fresh) {
         SessionRef s = session(key, fresh);
         running.put(key, s.sid());
@@ -1554,6 +1601,11 @@ public class Bot implements Conversations {
                 return false;
             }
             store.reset(key);
+            if (entry.containsKey("agent")) { // vergessen heißt hier: auch den Agenten
+                Map<String, String> clear = new HashMap<>();
+                clear.put("agent", null);
+                store.setSetting(key, clear);
+            }
             removeDir(entry.get("directory"));
             deleteSession(key, entry.get("opencode_session_id"));
             log.info("{}: Unterhaltung vergessen", key);

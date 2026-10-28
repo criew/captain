@@ -38,7 +38,7 @@ import tools.jackson.databind.node.ObjectNode;
  * REST-Eingabekanal: Nachrichten ohne Mattermost, z. B. von n8n.
  *
  * <pre>
- * POST   /api/conversations/{id}/messages   {"text": "…", "sender": "…", "callback_url": "…"}
+ * POST   /api/conversations/{id}/messages   {"text": "…", "sender": "…", "callback_url": "…", "agent": "…"}
  * DELETE /api/conversations/{id}            Unterhaltung vergessen (wie !neu)
  * GET    /api/health                        ohne Token
  * </pre>
@@ -51,6 +51,10 @@ import tools.jackson.databind.node.ObjectNode;
  * {@code {"conversation", "session", "answer"}}). Mit {@code callback_url} kommt sofort
  * {@code 202}, die Antwort später per {@code POST} als JSON an die URL (bei Fehler zusätzlich
  * {@code "error"}) – für Antworten, die länger dauern als der Timeout des Aufrufers.
+ *
+ * <p>{@code agent} (optional) wählt einen opencode-Agenten aus {@code CAPTAIN_REST_AGENTS}; er gilt
+ * für die ganze Unterhaltung. Unbekannt → {@code 400}, anderer Agent als bisher → {@code 409}
+ * (geprüft vor dem {@code 202}).
  */
 public final class ApiServer implements AutoCloseable {
 
@@ -162,6 +166,20 @@ public final class ApiServer implements AutoCloseable {
             return;
         }
         String sender = body.path("sender").isString() ? body.path("sender").asString().strip() : null;
+        String agent = null;
+        if (body.hasNonNull("agent")) {
+            agent = body.path("agent").isString() ? body.path("agent").asString().strip() : "";
+            if (agent.isEmpty()) {
+                send(ex, 400, error("\"agent\" muss ein nicht leerer Text sein"));
+                return;
+            }
+        }
+        try {
+            conversations.checkAgent(id, agent);
+        } catch (AgentRejectedException e) {
+            send(ex, e.status(), error(e.getMessage()));
+            return;
+        }
         URI callback = null;
         if (body.hasNonNull("callback_url")) {
             callback = callbackUri(Json.str(body, "callback_url"));
@@ -176,7 +194,7 @@ public final class ApiServer implements AutoCloseable {
         }
         if (callback == null) {
             try {
-                ObjectNode result = answer(id, text, sender);
+                ObjectNode result = answer(id, text, sender, agent);
                 send(ex, result.has("error") ? status(result) : 200, result);
             } finally {
                 pending.release();
@@ -184,10 +202,11 @@ public final class ApiServer implements AutoCloseable {
             return;
         }
         URI target = callback;
+        String chosen = agent;
         send(ex, 202, Json.object().put("conversation", id).put("status", "accepted"));
         executor.execute(() -> {
             try {
-                deliver(target, answer(id, text, sender));
+                deliver(target, answer(id, text, sender, chosen));
             } finally {
                 pending.release();
             }
@@ -195,11 +214,13 @@ public final class ApiServer implements AutoCloseable {
     }
 
     /** Antwort als JSON; Fehler mit {@code "error"} und internem {@code "_status"}. */
-    private ObjectNode answer(String id, String text, String sender) {
+    private ObjectNode answer(String id, String text, String sender, String agent) {
         ObjectNode out = Json.object().put("conversation", id);
         try {
-            Conversations.Answer answer = conversations.ask(id, text, sender);
+            Conversations.Answer answer = conversations.ask(id, text, sender, agent);
             return out.put("session", answer.session()).put("answer", answer.text());
+        } catch (AgentRejectedException e) {
+            return out.put("error", e.getMessage()).put("_status", e.status());
         } catch (PromptInterruptedException e) {
             return out.put("error", "abgebrochen: " + e.getMessage()).put("_status", 409);
         } catch (OpencodeException e) {
