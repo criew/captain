@@ -165,8 +165,58 @@ CAPTAIN_AGENT_TOOLS=reviewer: gitlab_get_merge_request gitlab_get_merge_request_
 Die Tool-Namen hängen vom MCP-Server ab (`<server>_<tool>`; Server-Name aus
 `mcp.servers`). Der Reviewer liest Diff und Dateien über diese Tools, legt
 Notizen im Session-Verzeichnis ab und postet selbst einen Sammelkommentar.
-n8n schickt beim MR-Open `{"text": "Review MR !7 in Projekt 42", "agent":
-"reviewer", "callback_url": …}`, danach Kommentare und Pushes an dieselbe ID.
+
+### Umschlag (n8n → Reviewer)
+
+n8n schickt **keinen Diff**, nur einen kleinen Umschlag als JSON im Feld
+`text`. Große Diffs würden `MAX_TEXT` sprengen, und die GitLab-API kürzt sie
+ohnehin. Den Rest holt der Agent selbst über die GitLab-Tools. Die
+Conversation-ID ist fest pro MR: `gitlab:<projekt-id>:mr-<iid>`. Alle Events
+eines MR gehen an dieselbe ID, Close/Merge → `DELETE`.
+
+```json
+POST /api/conversations/gitlab:42:mr-7/messages
+{
+  "agent": "reviewer",
+  "sender": "GitLab",
+  "callback_url": "https://n8n.intern/webhook/captain-review",
+  "text": "{\"captain_review\": 1, \"event\": \"open\", \"project\": {\"id\": 42, \"path\": \"team/service\"}, \"mr\": {\"iid\": 7, \"url\": \"https://gitlab.intern/team/service/-/merge_requests/7\", \"title\": \"…\", \"description\": \"…\", \"author\": \"mmuster\", \"source_branch\": \"feature/x\", \"target_branch\": \"main\", \"diff_refs\": {\"base_sha\": \"…\", \"start_sha\": \"…\", \"head_sha\": \"…\"}}}"
+}
+```
+
+Der Umschlag aufgeklappt:
+
+```json
+{
+  "captain_review": 1,
+  "event": "open",
+  "project": { "id": 42, "path": "team/service" },
+  "mr": {
+    "iid": 7,
+    "url": "https://gitlab.intern/team/service/-/merge_requests/7",
+    "title": "…", "description": "…", "author": "mmuster",
+    "source_branch": "feature/x", "target_branch": "main",
+    "diff_refs": { "base_sha": "…", "start_sha": "…", "head_sha": "…" }
+  },
+  "push": { "oldrev": "…", "newrev": "…" },
+  "note": { "id": 1234, "discussion_id": "…", "author": "kkollege", "body": "…" },
+  "pipeline": { "id": 5678, "status": "failed" }
+}
+```
+
+| `event` | Wann | Zusatzfeld | Der Agent … |
+|---|---|---|---|
+| `open` | MR geöffnet (oder Draft → Ready) | – | prüft den ganzen MR, postet einen Sammelkommentar |
+| `update` | neuer Push | `push` | prüft nur `oldrev..newrev`, ergänzt einen Kommentar |
+| `note` | Kommentar, der den Bot erwähnt bzw. auf ihn antwortet | `note` | antwortet in derselben Discussion |
+| `pipeline` | Pipeline fertig | `pipeline` | wertet Ergebnis und Job-Logs aus, falls relevant |
+
+Felder kommen 1:1 aus dem GitLab-Webhook (`object_attributes`, `project`,
+`user`). `captain_review` ist die Formatversion. Selbst holt der Agent: Diff
+zwischen den SHAs, Dateien des Source-Branches, Pipeline-Status und
+Job-Logs (Ersatz fürs Bauen), bestehende Discussions (nichts doppelt
+anmerken), ggf. das verlinkte Ticket und Review-Richtlinien aus der
+Wissensbasis. Die passenden Tools müssen in `CAPTAIN_AGENT_TOOLS` stehen.
 
 ## Aufräumen
 
