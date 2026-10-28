@@ -16,6 +16,7 @@ import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.ewerlin.captain.util.Clock;
 import com.ewerlin.captain.util.Json;
 
 import tools.jackson.core.JacksonException;
@@ -24,8 +25,10 @@ import tools.jackson.databind.JsonNode;
 /**
  * Session-Store: Session-Key → opencode-Session plus Einstellungen.
  *
- * <p>Eintrag: {@code {opencode_session_id, directory, model, variant}}; fehlende Felder werden
- * weggelassen. Modell und Variante hängen am Key, nicht an der Session – {@link #reset} behält sie.
+ * <p>Eintrag: {@code {opencode_session_id, directory, last_used, model, variant, expired_at}};
+ * fehlende Felder werden weggelassen. Modell und Variante hängen am Key, nicht an der Session –
+ * {@link #reset} behält sie. {@code last_used} (ms seit der Epoche) ist die letzte Nutzung der
+ * Session, {@code expired_at} markiert eine vom Janitor aufgeräumte Session ({@link #expire}).
  * {@code directory} ist {@code <SESSIONS_DIR>/<opencode_session_id>} (z. B.
  * {@code /tmp/captain/ses_…}); die ID vergibt der Bot ({@link SessionKeys#newSessionId}).
  *
@@ -36,7 +39,8 @@ public class SessionStore {
 
     private static final Logger log = LoggerFactory.getLogger(SessionStore.class);
 
-    public static final List<String> SESSION_FIELDS = List.of("opencode_session_id", "directory");
+    public static final List<String> SESSION_FIELDS = List.of("opencode_session_id", "directory", "last_used");
+    public static final String EXPIRED_AT = "expired_at";
     public static final List<String> SETTING_FIELDS = List.of("model", "variant");
 
     private final Path path;
@@ -131,15 +135,54 @@ public class SessionStore {
         }
     }
 
-    /** Setzt die opencode-Session des Keys; Einstellungen bleiben erhalten. */
+    /** Alle Keys (Kopie). */
+    public List<String> keys() {
+        synchronized (lock) {
+            return List.copyOf(data.keySet());
+        }
+    }
+
+    /** Setzt die opencode-Session des Keys (zuletzt genutzt: jetzt); Einstellungen bleiben erhalten. */
     public Map<String, String> set(String key, String opencodeSessionId, String directory) {
+        return set(key, opencodeSessionId, directory, Clock.nowMs());
+    }
+
+    public Map<String, String> set(String key, String opencodeSessionId, String directory, long nowMs) {
         synchronized (lock) {
             Map<String, Map<String, String>> next = copy();
             Map<String, String> entry = next.computeIfAbsent(key, k -> new LinkedHashMap<>());
             entry.put("opencode_session_id", opencodeSessionId);
             entry.put("directory", directory);
+            entry.put("last_used", Long.toString(nowMs));
+            entry.remove(EXPIRED_AT);
             commit(next);
             return new LinkedHashMap<>(entry);
+        }
+    }
+
+    /** Merkt die Nutzung der Session des Keys; ohne Session nichts. */
+    public void touch(String key, long nowMs) {
+        synchronized (lock) {
+            Map<String, String> entry = data.get(key);
+            if (entry == null || entry.get("opencode_session_id") == null) {
+                return;
+            }
+            Map<String, Map<String, String>> next = copy();
+            next.get(key).put("last_used", Long.toString(nowMs));
+            commit(next);
+        }
+    }
+
+    /** Letzte Nutzung (ms) oder {@code null} (keine Session bzw. Alteintrag ohne Feld). */
+    public static Long lastUsed(Map<String, String> entry) {
+        String value = entry == null ? null : entry.get("last_used");
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -152,6 +195,30 @@ public class SessionStore {
             Map<String, Map<String, String>> next = copy();
             Map<String, String> entry = next.get(key);
             SESSION_FIELDS.forEach(entry::remove);
+            entry.remove(EXPIRED_AT);
+            if (entry.isEmpty()) {
+                next.remove(key);
+            }
+            commit(next);
+        }
+    }
+
+    /**
+     * Wie {@link #reset}, aber durch den Janitor; mit {@code mark} bleibt {@code expired_at} stehen
+     * (die nächste Session holt dann den bisherigen Verlauf als Kontext, siehe {@code Bot}).
+     */
+    public void expire(String key, long nowMs, boolean mark) {
+        synchronized (lock) {
+            if (!data.containsKey(key)) {
+                return;
+            }
+            Map<String, Map<String, String>> next = copy();
+            Map<String, String> entry = next.get(key);
+            SESSION_FIELDS.forEach(entry::remove);
+            entry.remove(EXPIRED_AT);
+            if (mark) {
+                entry.put(EXPIRED_AT, Long.toString(nowMs));
+            }
             if (entry.isEmpty()) {
                 next.remove(key);
             }

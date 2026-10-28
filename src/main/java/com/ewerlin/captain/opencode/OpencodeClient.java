@@ -302,6 +302,15 @@ public class OpencodeClient implements OpencodeApi, AutoCloseable {
         }
     }
 
+    @Override
+    public void deleteSession(String sessionId) {
+        try {
+            request("DELETE", "/api/session/" + sessionId, sessionId, null, null);
+        } catch (SessionGoneException e) {
+            // schon weg
+        }
+    }
+
     /**
      * Verfügbare Modelle als {@code {id: "provider/modell", name, variants}}.
      *

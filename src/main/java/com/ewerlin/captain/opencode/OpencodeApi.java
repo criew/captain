@@ -23,6 +23,9 @@ public interface OpencodeApi {
     /** Bricht eine laufende Ausführung ab; unbekannte Sessions werden ignoriert. */
     void abort(String sessionId);
 
+    /** Löscht die Session samt Verlauf; unbekannte Sessions werden ignoriert. */
+    void deleteSession(String sessionId);
+
     /** Verfügbare Modelle (ohne {@code directory}: Startverzeichnis von opencode). */
     List<ModelInfo> listModels(String directory);
 

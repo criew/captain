@@ -47,6 +47,21 @@ public final class KeyLocks {
         return new Held(key, entry);
     }
 
+    /** Lock nur, wenn er frei ist (niemand hält ihn oder wartet darauf); sonst {@code null}. */
+    public Held tryLock(String key) {
+        Entry entry;
+        synchronized (locks) {
+            if (locks.containsKey(key)) {
+                return null;
+            }
+            entry = new Entry();
+            entry.users = 1;
+            entry.lock.lock(); // neu, also sofort frei
+            locks.put(key, entry);
+        }
+        return new Held(key, entry);
+    }
+
     private void release(String key, Entry entry) {
         synchronized (locks) {
             if (--entry.users == 0) {

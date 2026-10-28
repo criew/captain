@@ -16,6 +16,7 @@ import com.ewerlin.captain.policy.SharedDir;
  * @param sharedDir     geteiltes Verzeichnis (Host-Pfad, nur zur Info); gesetzt = opencode liest es
  *                      unter {@link SharedDir#MOUNT}, {@code null} = aus
  * @param apiToken      Bearer-Token des REST-Eingabekanals; {@code null} = REST aus
+ * @param sessionMaxIdle Sessions so lange unbenutzt → aufräumen; {@link Duration#ZERO} = nie
  */
 public record CaptainConfig(
         String mmUrl,
@@ -33,7 +34,8 @@ public record CaptainConfig(
         int historyMaxChars,
         List<String> webfetchAllow,
         String sharedDir,
-        String apiToken) {
+        String apiToken,
+        Duration sessionMaxIdle) {
 
     public CaptainConfig {
         webfetchAllow = List.copyOf(webfetchAllow);
@@ -59,7 +61,8 @@ public record CaptainConfig(
                 .sessionsDir(sessionsDir).dataDir(dataDir).systemPrompt(systemPrompt)
                 .catchupMaxAge(catchupMaxAge).maxAttachmentMb(maxAttachmentMb)
                 .historyMaxPosts(historyMaxPosts).historyMaxChars(historyMaxChars)
-                .webfetchAllow(webfetchAllow).sharedDir(sharedDir).apiToken(apiToken);
+                .webfetchAllow(webfetchAllow).sharedDir(sharedDir).apiToken(apiToken)
+                .sessionMaxIdle(sessionMaxIdle);
     }
 
     /** Baut eine Konfiguration mit den Standardwerten aus {@link ConfigLoader}. */
@@ -80,6 +83,7 @@ public record CaptainConfig(
         private List<String> webfetchAllow = List.of();
         private String sharedDir;
         private String apiToken;
+        private Duration sessionMaxIdle = Duration.ofDays(14);
 
         public Builder mmUrl(String v) { mmUrl = v; return this; }
         public Builder mmBotToken(String v) { mmBotToken = v; return this; }
@@ -97,11 +101,12 @@ public record CaptainConfig(
         public Builder webfetchAllow(List<String> v) { webfetchAllow = v; return this; }
         public Builder sharedDir(String v) { sharedDir = v; return this; }
         public Builder apiToken(String v) { apiToken = v; return this; }
+        public Builder sessionMaxIdle(Duration v) { sessionMaxIdle = v; return this; }
 
         public CaptainConfig build() {
             return new CaptainConfig(mmUrl, mmBotToken, opencodeUrl, opencodePassword, opencodeModel,
                     opencodeVariant, sessionsDir, dataDir, systemPrompt, catchupMaxAge,
-                    maxAttachmentMb, historyMaxPosts, historyMaxChars, webfetchAllow, sharedDir, apiToken);
+                    maxAttachmentMb, historyMaxPosts, historyMaxChars, webfetchAllow, sharedDir, apiToken, sessionMaxIdle);
         }
     }
 }

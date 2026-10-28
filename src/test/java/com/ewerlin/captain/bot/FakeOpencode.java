@@ -40,6 +40,8 @@ class FakeOpencode implements OpencodeApi {
     final List<Call> prompts = new ArrayList<>();
     final List<Function<Call, String>> behaviour = new ArrayList<>();
     final List<String> aborted = new ArrayList<>();
+    final List<String> deleted = new ArrayList<>();
+    volatile RuntimeException deleteError;
     final List<String> instructionCalls = new ArrayList<>();
     List<ModelInfo> models = List.of(
             new ModelInfo("llm/modell-a", "g", List.of()),
@@ -78,6 +80,17 @@ class FakeOpencode implements OpencodeApi {
     }
 
     @Override
+    public void deleteSession(String sessionId) {
+        RuntimeException error = deleteError;
+        if (error != null) {
+            throw error;
+        }
+        synchronized (this) {
+            deleted.add(sessionId);
+        }
+    }
+
+    @Override
     public List<ModelInfo> listModels(String directory) {
         return models;
     }
@@ -110,5 +123,9 @@ class FakeOpencode implements OpencodeApi {
 
     synchronized List<String> aborted() {
         return List.copyOf(aborted);
+    }
+
+    synchronized List<String> deleted() {
+        return List.copyOf(deleted);
     }
 }

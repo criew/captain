@@ -191,6 +191,14 @@ class ConfigLoaderTest {
     }
 
     @Test
+    void sessionMaxIdle() {
+        assertThat(load(Map.of()).sessionMaxIdle()).isEqualTo(Duration.ofDays(14));
+        assertThat(load(Map.of("SESSION_MAX_IDLE", "36h")).sessionMaxIdle()).isEqualTo(Duration.ofHours(36));
+        assertThat(load(Map.of("SESSION_MAX_IDLE", "0")).sessionMaxIdle()).isZero();
+        assertThatThrownBy(() -> load(Map.of("SESSION_MAX_IDLE", "nie"))).isInstanceOf(ConfigException.class);
+    }
+
+    @Test
     void maxAttachmentMbDefaultAndValues() {
         CaptainConfig cfg = load(Map.of());
         assertThat(cfg.maxAttachmentMb()).isEqualTo(20);

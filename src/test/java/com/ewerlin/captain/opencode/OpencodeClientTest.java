@@ -189,7 +189,14 @@ class OpencodeClientTest {
                 }
                 String action = parts.length > 3 ? parts[3] : "";
                 switch (action) {
-                    case "" -> json(ex, 200, Map.of("data", sessions.get(sid)));
+                    case "" -> {
+                        if (req.method().equals("DELETE")) {
+                            sessions.remove(sid);
+                            json(ex, 200, Map.of("data", true));
+                        } else {
+                            json(ex, 200, Map.of("data", sessions.get(sid)));
+                        }
+                    }
                     case "prompt" -> {
                         promptBody = body;
                         if (promptStatus != 200) {
@@ -368,6 +375,15 @@ class OpencodeClientTest {
         client.abort("ses_weg"); // unbekannt → kein Fehler
         client.abort("ses_a");
         assertThat(calls("POST", "/api/session/ses_a/interrupt")).hasSize(1).containsOnlyNulls();
+    }
+
+    @Test
+    void deleteSession() {
+        fake.addSession("ses_a", List.of(), "i");
+        client.deleteSession("ses_a");
+        assertThat(calls("DELETE", "/api/session/ses_a")).hasSize(1);
+        assertThat(client.sessionExists("ses_a")).isFalse();
+        client.deleteSession("ses_a"); // 404 → kein Fehler
     }
 
     @Test

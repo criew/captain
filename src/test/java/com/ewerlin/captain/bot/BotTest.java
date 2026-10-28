@@ -835,6 +835,182 @@ class BotTest {
         assertThat(outside).exists();
     }
 
+    // ---------------------------------------------------------------- Aufräumen (#17)
+
+    static final long DAY = 86_400_000L;
+
+    /** Uhr des Bots auf {@code now} umstellbar. */
+    java.util.concurrent.atomic.AtomicLong fakeClock() {
+        var now = new java.util.concurrent.atomic.AtomicLong(1_000 * DAY);
+        b.clock = now::get;
+        return now;
+    }
+
+    @Test
+    void forgetDeletesOpencodeSession() {
+        String sid = b.ask("x", "eins", null).session();
+        assertThat(b.forget("x")).isTrue();
+        assertThat(oc.deleted()).containsExactly(sid);
+    }
+
+    @Test
+    void neuDeletesOpencodeSession() {
+        b.onPost(post("Hallo").build());
+        waitIdle(b);
+        b.onPost(post("!neu").build());
+        waitIdle(b);
+        assertThat(oc.deleted()).containsExactly("ses_1");
+        assertThat(store.get("matter-dm:c1")).isNull();
+    }
+
+    @Test
+    void deleteErrorDoesNotBreakForget() {
+        b.ask("x", "eins", null);
+        oc.deleteError = new OpencodeException("HTTP 500");
+        assertThat(b.forget("x")).isTrue();
+        assertThat(store.get("rest:x")).isNull();
+    }
+
+    @Test
+    void sweepRemovesIdleSessionsOfAllChannels() {
+        var now = fakeClock();
+        b.onPost(post("Hallo").build()); // matter-dm:c1
+        Post p = post("@captain los").type("O").ch("c5").build(); // matter-th:<p>
+        b.onPost(p);
+        waitIdle(b);
+        b.ask("mr-1", "Review", null); // rest:mr-1
+        store.setModel("matter-dm:c1", "opencode/x", null);
+        Map<String, String> dm = store.get("matter-dm:c1");
+        now.addAndGet(13 * DAY);
+        b.ask("mr-2", "frisch", null); // erst 1 Tag alt, wenn die anderen fällig sind
+        assertThat(b.sweep()).isZero();
+        now.addAndGet(DAY + 1);
+        assertThat(b.sweep()).isEqualTo(3);
+        assertThat(oc.deleted()).containsExactlyInAnyOrder("ses_1", "ses_2", "ses_3");
+        assertThat(Path.of(dm.get("directory"))).doesNotExist();
+        assertThat(store.get("matter-dm:c1")).isEqualTo(Map.of("model", "opencode/x",
+                "expired_at", Long.toString(now.get())));
+        assertThat(store.get("matter-th:" + p.id())).isNull();
+        assertThat(store.get("rest:mr-1")).isNull();
+        assertThat(store.get("rest:mr-2").get("opencode_session_id")).isEqualTo("ses_4");
+        // neue Nachricht im alten Thread → neue Session (Thread-Kontext wie gehabt)
+        b.onPost(post("noch da?").type("O").ch("c5").root(p.id()).build());
+        waitIdle(b);
+        assertThat(oc.prompts.getLast().sid()).isEqualTo("ses_5");
+    }
+
+    @Test
+    void sweepTouchesLegacyEntries() throws IOException {
+        var now = fakeClock();
+        Path dir = Path.of(b.cfg.sessionsDir(), "ses_alt");
+        Files.createDirectories(dir);
+        Path file = Files.createDirectories(Path.of(b.cfg.dataDir())).resolve("sessions.json");
+        Files.writeString(file, Json.tree(Map.of("matter-dm:c1",
+                Map.of("opencode_session_id", "ses_alt", "directory", slash(dir)))).toString());
+        SessionStore old = new SessionStore(file); // Alteintrag ohne last_used
+        Bot bot = new Bot(b.cfg, mm, oc, old);
+        try {
+            bot.clock = now::get;
+            assertThat(bot.sweep()).isZero(); // gilt ab jetzt als genutzt
+            assertThat(SessionStore.lastUsed(old.get("matter-dm:c1"))).isEqualTo(now.get());
+            now.addAndGet(15 * DAY);
+            assertThat(bot.sweep()).isEqualTo(1);
+            assertThat(oc.deleted()).containsExactly("ses_alt");
+            assertThat(dir).doesNotExist();
+        } finally {
+            bot.stop();
+        }
+    }
+
+    @Test
+    void useResetsIdleTime() {
+        var now = fakeClock();
+        b.ask("x", "eins", null);
+        now.addAndGet(10 * DAY);
+        b.ask("x", "zwei", null);
+        now.addAndGet(10 * DAY);
+        assertThat(b.sweep()).isZero();
+        now.addAndGet(5 * DAY);
+        assertThat(b.sweep()).isEqualTo(1);
+    }
+
+    @Test
+    void sweepSkipsRunningAnswer() throws Exception {
+        var now = fakeClock();
+        b.ask("x", "eins", null);
+        now.addAndGet(20 * DAY);
+        CountDownLatch gate = new CountDownLatch(1);
+        CountDownLatch running = new CountDownLatch(1);
+        oc.behaviour.add(call -> {
+            running.countDown();
+            await(gate);
+            return "fertig";
+        });
+        Map<String, String> entry = store.get("rest:x");
+        // Prompt läuft mit altem last_used (Uhr steht still während der Antwort)
+        b.clock = () -> Long.parseLong(entry.get("last_used"));
+        var answer = java.util.concurrent.CompletableFuture.supplyAsync(() -> b.ask("x", "zwei", null).text());
+        assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
+        b.clock = now::get;
+        assertThat(b.sweep()).isZero();
+        gate.countDown();
+        assertThat(answer.get(5, TimeUnit.SECONDS)).isEqualTo("fertig");
+        assertThat(oc.deleted()).isEmpty();
+        assertThat(b.sweep()).isEqualTo(1); // danach wieder frei
+    }
+
+    @Test
+    void sweepKeepsEntryWhenDeleteFails() {
+        var now = fakeClock();
+        b.ask("x", "eins", null);
+        now.addAndGet(15 * DAY);
+        oc.deleteError = new OpencodeException("opencode weg");
+        assertThat(b.sweep()).isZero();
+        assertThat(store.get("rest:x").get("opencode_session_id")).isEqualTo("ses_1");
+        oc.deleteError = null;
+        assertThat(b.sweep()).isEqualTo(1);
+    }
+
+    @Test
+    void sweepOffWithZero() {
+        var now = fakeClock();
+        b.cfg = b.cfg.toBuilder().sessionMaxIdle(java.time.Duration.ZERO).build();
+        b.ask("x", "eins", null);
+        now.addAndGet(365 * DAY);
+        assertThat(b.sweep()).isZero();
+        assertThat(store.get("rest:x")).isNotNull();
+    }
+
+    @Test
+    void dmAfterExpiryGetsContextSinceLastNeu() {
+        var now = fakeClock();
+        b.onPost(post("Hallo").build());
+        waitIdle(b);
+        now.addAndGet(15 * DAY);
+        assertThat(b.sweep()).isEqualTo(1);
+        Post p = post("Weißt du noch?").build();
+        mm.channel = List.of(
+                raw("{\"id\":\"a0\",\"user_id\":\"u_alice\",\"message\":\"Geheimnis\",\"create_at\":1}"),
+                raw("{\"id\":\"a1\",\"user_id\":\"bot1\",\"message\":\"" + Bot.NEW_NOTE + "\",\"create_at\":2}"),
+                raw("{\"id\":\"a2\",\"user_id\":\"u_alice\",\"message\":\"Mein Hund heißt Rex\",\"create_at\":3}"),
+                raw("{\"id\":\"a3\",\"user_id\":\"bot1\",\"message\":\"Schöner Name.\",\"create_at\":4}"),
+                Json.object().put("id", p.id()).put("user_id", "u_alice").put("message", p.message()).put("create_at", 5));
+        b.onPost(p);
+        waitIdle(b);
+        assertThat(oc.prompts.getLast().sid()).isEqualTo("ses_2");
+        assertThat(oc.prompts.getLast().text()).isEqualTo(
+                "[Bisheriger Verlauf dieser Direktnachrichten – die frühere Sitzung wurde nach längerer Pause beendet]\n"
+                        + "Alice Test: Mein Hund heißt Rex\nCaptain (du): Schöner Name.\n"
+                        + "[Ende des Verlaufs]\n\nWeißt du noch?");
+        assertThat(store.get("matter-dm:c1")).doesNotContainKey("expired_at");
+        // nach !neu gibt es keinen DM-Kontext
+        b.onPost(post("!neu").build());
+        waitIdle(b);
+        b.onPost(post("Neu hier").build());
+        waitIdle(b);
+        assertThat(oc.prompts.getLast().text()).isEqualTo("Neu hier");
+    }
+
     static void await(CountDownLatch latch) {
         try {
             assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
