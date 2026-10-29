@@ -59,7 +59,7 @@ tasks.register<Exec>("nodeTest") {
     commandLine(
         "node", "--test",
         "infra/opencode/start.test.mjs", "infra/opencode/webfetch.test.mjs", "infra/opencode/shared.test.mjs",
-        "infra/n8n/captain-umschlag.test.mjs",
+        "infra/n8n/captain-umschlag.test.mjs", "infra/n8n/workflow.test.mjs",
     )
 }
 

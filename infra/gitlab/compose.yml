@@ -1,0 +1,48 @@
+# GitLab CE 19.2 fuer das Captain-Test-Setup (eingebunden ueber das Root-compose.yml).
+# Nur fuer lokale Tests: root-Passwort ist absichtlich trivial (README.md).
+# Braucht ~4 GB RAM und 3–5 Minuten fuer den ersten Start.
+# Danach: python infra/gitlab/seed.py
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:19.2.10-ce.0
+    # nur mit --profile review (braucht ~4 GB RAM)
+    profiles: [review]
+    restart: unless-stopped
+    hostname: gitlab
+    shm_size: 256m
+    ports:
+      # Browser: http://localhost:8929 (root / GITLAB_ROOT_PASSWORD unten)
+      - "8929:8929"
+    environment:
+      GITLAB_ROOT_PASSWORD: Kompass-Nordwind-7319-Ankerplatz
+      GITLAB_OMNIBUS_CONFIG: |
+        # Gleicher Port innen wie aussen: Container erreichen GitLab als http://gitlab:8929
+        external_url 'http://localhost:8929'
+        nginx['listen_port'] = 8929
+        gitlab_rails['initial_root_password'] = 'Kompass-Nordwind-7319-Ankerplatz'
+        gitlab_rails['time_zone'] = 'Europe/Berlin'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2224
+        # Test-Instanz schlank halten
+        puma['worker_processes'] = 0
+        sidekiq['concurrency'] = 10
+        prometheus_monitoring['enable'] = false
+        gitlab_rails['usage_ping_enabled'] = false
+        gitlab_kas['enable'] = false
+        registry['enable'] = false
+        gitlab_pages['enable'] = false
+        mattermost['enable'] = false
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8929/-/readiness >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 240s
+
+volumes:
+  gitlab-config:
+  gitlab-logs:
+  gitlab-data:

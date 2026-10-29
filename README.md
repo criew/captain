@@ -69,7 +69,7 @@ docker compose -f compose.deploy.yml logs -f captain     # „Captain läuft als
 
 ```
 compose.deploy.yml   Betrieb: opencode + Bot gegen ein bestehendes Mattermost
-compose.yml          Test-Setup mit eigenem Mattermost (infra/*)
+compose.yml          Test-Setup mit eigenem Mattermost, Profil review: GitLab + n8n (infra/*)
 infra/opencode/      opencode-Image: Sicherheitsbasis, Startskript, Config-Vorlagen
 src/main/java/…      Bot (Spring Boot 4, Java 21): mattermost/, opencode/, bot/, api/, policy/
 docs/betrieb.md      Betrieb, Konfiguration, Sicherheit, Entwicklung
@@ -83,4 +83,5 @@ docs/anwendungsbeispiel/  Beispiel: Chat + GitLab-MR-Review (n8n), mit Diagramme
 ./gradlew integrationTest    # gegen Docker bzw. laufendes Test-Setup
 docker compose up -d mattermost opencode && python infra/mattermost/seed.py
 docker compose up -d --build captain && python scripts/e2e.py
+docker compose --profile review up -d   # GitLab + n8n, siehe docs/betrieb.md
 ```
