@@ -53,12 +53,13 @@ tasks.register<Test>("integrationTest") {
 
 // Node-Unit-Tests des opencode-Startskripts (infra/opencode/*.test.mjs)
 tasks.register<Exec>("nodeTest") {
-    description = "Node-Unit-Tests von infra/opencode (start.mjs, egress.mjs, shared.mjs)."
+    description = "Node-Unit-Tests von infra/opencode (start.mjs, egress.mjs, shared.mjs) und infra/n8n."
     group = "verification"
     workingDir = projectDir
     commandLine(
         "node", "--test",
         "infra/opencode/start.test.mjs", "infra/opencode/webfetch.test.mjs", "infra/opencode/shared.test.mjs",
+        "infra/n8n/captain-umschlag.test.mjs",
     )
 }
 
