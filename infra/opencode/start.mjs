@@ -151,11 +151,41 @@ const COMPACTION = { auto: bool, buffer: num, keep: { tokens: num } };
 const RULE = { action: str, resource: str, effect: (v) => v === "allow" || v === "deny" };
 const MODEL_REF = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._:@+\/-]+$/;
 // Eigene Agenten (Captain waehlt sie per REST, CAPTAIN_REST_AGENTS): nur Prompt, Beschreibung,
-// Modell und Schrittgrenze. Keine "permissions" – die Rechte setzt Captain pro Session (Agent-Regeln
+// Modell und Schrittgrenze. Den Prompt am besten als Datei agents/<name>.md (siehe promptReader). Keine "permissions" – die Rechte setzt Captain pro Session (Agent-Regeln
 // stehen davor und wuerden ohnehin ueberstimmt); "mode" ist immer "primary".
 const AGENT = { system: str, description: str, model: (v) => str(v) && MODEL_REF.test(v), steps: (v) => Number.isInteger(v) && v > 0 };
 export const AGENT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 // Eingebaute Agenten von opencode – nicht umbaubar (Mattermost-Sessions laufen mit dem Standard-Agenten).
+// Prompt eines Agenten als eigene Datei neben der Admin-Config (statt "system" als JSON-String):
+// /etc/captain/agents/<name>.md. Der Name ist per AGENT_NAME geprueft (kein Pfad), die Datei muss
+// eine normale Datei sein (kein Symlink) und hoechstens PROMPT_MAX Bytes haben. Platzhalter
+// ({env:…}) werden darin NICHT ersetzt.
+export const AGENTS_DIR = "/etc/captain/agents";
+export const PROMPT_MAX = 64 * 1024;
+
+// Name -> Prompt-Text oder null (keine Datei); wirft bei unbrauchbarer Datei.
+export function promptReader(dir = AGENTS_DIR, warn = () => {}) {
+  return (name) => {
+    const file = `${dir}/${name}.md`;
+    let st;
+    try {
+      st = fs.lstatSync(file);
+    } catch (e) {
+      if (e.code === "ENOENT") return null;
+      warn(`${file} nicht lesbar: ${e.message}`);
+      return null;
+    }
+    if (!st.isFile()) {
+      warn(`${file}: keine normale Datei (Symlink?) – ignoriert`);
+      return null;
+    }
+    if (st.size > PROMPT_MAX) {
+      warn(`${file}: groesser als ${PROMPT_MAX / 1024} KB – ignoriert`);
+      return null;
+    }
+    return fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
+  };
+}
 export const BUILTIN_AGENTS = new Set(["build", "plan", "general", "explore", "compaction", "title", "summary"]);
 
 function pick(obj, schema, path, warn) {
@@ -174,7 +204,7 @@ function pick(obj, schema, path, warn) {
   return out;
 }
 
-export function sanitize(cfg, warn = () => {}) {
+export function sanitize(cfg, warn = () => {}, readPrompt = () => null) {
   const out = {};
   for (const [key, value] of Object.entries(isObj(cfg) ? cfg : {})) {
     if (key === "$schema") continue;
@@ -227,11 +257,26 @@ export function sanitize(cfg, warn = () => {}) {
           warn(`agents.${name}: ungueltiger Name oder eingebauter Agent – verworfen`);
           continue;
         }
-        if (!isObj(a) || !str(a.system)) {
-          warn(`agents.${name}: Objekt mit "system" (Text) erwartet – verworfen`);
+        if (!isObj(a)) {
+          warn(`agents.${name}: Objekt erwartet – verworfen`);
           continue;
         }
-        agents[name] = { ...pick(a, AGENT, `agents.${name}`, warn), mode: "primary" };
+        const file = readPrompt(name);
+        let system = a.system;
+        if (str(system) && file !== null) {
+          warn(`agents.${name}: "system" in der Config gewinnt, ${AGENTS_DIR}/${name}.md wird ignoriert (eins von beiden loeschen)`);
+        } else if (system === undefined && file !== null) {
+          system = file;
+        }
+        if (!str(system) || !system.trim()) {
+          warn(`agents.${name}: kein Prompt ("system" in der Config oder ${AGENTS_DIR}/${name}.md) – verworfen`);
+          continue;
+        }
+        if (PLACEHOLDER.test(system)) {
+          warn(`agents.${name}: Prompt enthaelt {env:…}/{file:…} (opencode wuerde es ersetzen) – verworfen`);
+          continue;
+        }
+        agents[name] = { ...pick({ ...a, system }, AGENT, `agents.${name}`, warn), mode: "primary" };
       }
       if (Object.keys(agents).length) out.agents = agents;
     } else if (key === "compaction" && isObj(value)) {
@@ -244,8 +289,8 @@ export function sanitize(cfg, warn = () => {}) {
 }
 
 // Admin-Datei (Text) -> bereinigte Config; wirft bei ungueltigem JSONC.
-export function buildConfig(text, env, warn = () => {}) {
-  const clean = sanitize(resolveEnv(parseJsonc(text), env, warn), warn);
+export function buildConfig(text, env, warn = () => {}, readPrompt = () => null) {
+  const clean = sanitize(resolveEnv(parseJsonc(text), env, warn), warn, readPrompt);
   const json = JSON.stringify(clean, null, 2);
   if (PLACEHOLDER.test(json)) throw new Error("Platzhalter in der bereinigten Config");
   return { clean, json };
@@ -393,7 +438,7 @@ async function main() {
   }
   let built;
   try {
-    built = buildConfig(text, process.env, warn);
+    built = buildConfig(text, process.env, warn, promptReader(AGENTS_DIR, warn));
   } catch (e) {
     fail(`${SOURCE} ist kein gueltiges JSONC: ${e.message}`);
   }
