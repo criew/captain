@@ -6,6 +6,8 @@ OpenAI-kompatiblem Modell (vLLM, Open WebUI, …). Captain hängt an
 zurück. Jede Unterhaltung hat eine eigene, dauerhafte opencode-Session.
 
 Betrieb, Konfiguration und Sicherheitsdetails: **[docs/betrieb.md](docs/betrieb.md)**.
+Anwendungsbeispiel mit Mattermost-Chat und GitLab-MR-Review über n8n:
+**[docs/anwendungsbeispiel](docs/anwendungsbeispiel/README.md)**.
 
 ## Was Captain kann
 
@@ -71,6 +73,7 @@ compose.yml          Test-Setup mit eigenem Mattermost (infra/*)
 infra/opencode/      opencode-Image: Sicherheitsbasis, Startskript, Config-Vorlagen
 src/main/java/…      Bot (Spring Boot 4, Java 21): mattermost/, opencode/, bot/, api/, policy/
 docs/betrieb.md      Betrieb, Konfiguration, Sicherheit, Entwicklung
+docs/anwendungsbeispiel/  Beispiel: Chat + GitLab-MR-Review (n8n), mit Diagrammen
 ```
 
 ## Entwicklung
