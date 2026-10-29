@@ -93,6 +93,11 @@ GitLab-Webhook, die holt der Reviewer mit dem MR-Tool. Bei einem neuen Push
 geprüft wird. Bei einem Kommentar (`note`) kommt `note` mit Kommentartext und
 `discussion_id`. Das Mapping aus dem Webhook macht der fertige n8n-Code-Node
 [`infra/n8n/captain-umschlag.js`](../../infra/n8n/captain-umschlag.js).
+Den ganzen Workflow (Webhook → Umschlag → Captain, dazu die Rückmeldung mit
+Alarm bei `FEHLER:`) gibt es zum Einfügen in den n8n-Editor:
+[`n8n-captain-review.json`](n8n-captain-review.json). Danach die Hosts
+anpassen und zwei Header-Auth-Credentials anlegen: „GitLab Webhook“
+(`X-Gitlab-Token`) und „Captain API“ (`Authorization: Bearer …`).
 
 ### GitLab-Zugriff: PAT für den MCP-Server
 
