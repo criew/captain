@@ -198,7 +198,7 @@ POST /api/conversations/gitlab:42:mr-7/messages
   "agent": "reviewer",
   "sender": "GitLab",
   "callback_url": "https://n8n.intern/webhook/captain-review",
-  "text": "{\"captain_review\": 1, \"event\": \"open\", \"project\": {\"id\": 42, \"path\": \"team/service\"}, \"mr\": {\"iid\": 7, \"url\": \"https://gitlab.intern/team/service/-/merge_requests/7\", \"title\": \"…\", \"description\": \"…\", \"author\": \"mmuster\", \"source_branch\": \"feature/x\", \"target_branch\": \"main\", \"diff_refs\": {\"base_sha\": \"…\", \"start_sha\": \"…\", \"head_sha\": \"…\"}}}"
+  "text": "{\"captain_review\": 1, \"event\": \"open\", \"project\": {\"id\": 42, \"path\": \"team/service\"}, \"mr\": {\"iid\": 7, \"url\": \"https://gitlab.intern/team/service/-/merge_requests/7\", \"title\": \"…\", \"source_branch\": \"feature/x\", \"target_branch\": \"main\", \"author_id\": 1151, \"head_sha\": \"ce1ddd5…\"}}"
 }
 ```
 
@@ -212,9 +212,9 @@ Der Umschlag aufgeklappt:
   "mr": {
     "iid": 7,
     "url": "https://gitlab.intern/team/service/-/merge_requests/7",
-    "title": "…", "description": "…", "author": "mmuster",
+    "title": "…",
     "source_branch": "feature/x", "target_branch": "main",
-    "diff_refs": { "base_sha": "…", "start_sha": "…", "head_sha": "…" }
+    "author_id": 1151, "head_sha": "ce1ddd5…"
   },
   "push": { "oldrev": "…", "newrev": "…" },
   "note": { "id": 1234, "discussion_id": "…", "author": "kkollege", "body": "…" },
@@ -222,16 +222,43 @@ Der Umschlag aufgeklappt:
 }
 ```
 
-| `event` | Wann | Zusatzfeld | Der Agent … |
-|---|---|---|---|
-| `open` | MR geöffnet (oder Draft → Ready) | – | prüft den ganzen MR, postet einen Sammelkommentar |
-| `update` | neuer Push | `push` | prüft nur `oldrev..newrev`, ergänzt einen Kommentar |
-| `note` | Kommentar, der den Bot erwähnt bzw. auf ihn antwortet | `note` | antwortet in derselben Discussion |
-| `pipeline` | Pipeline fertig | `pipeline` | wertet Ergebnis und Job-Logs aus, falls relevant |
+Bewusst klein: Beschreibung, Autorname und `diff_refs` stehen nicht (vollständig)
+im Webhook, der Agent holt sie mit dem MR-Tool.
 
-Felder kommen 1:1 aus dem GitLab-Webhook (`object_attributes`, `project`,
-`user`). `captain_review` ist die Formatversion. Selbst holt der Agent: Diff
-zwischen den SHAs, Dateien des Source-Branches, Pipeline-Status und
+| `event` | GitLab-Hook (n8n-Filter) | Zusatzfeld | Der Agent … |
+|---|---|---|---|
+| `open` | Merge Request Hook, `action` `open`/`reopen` oder `update` mit `changes.draft` true → false; nicht bei `draft` | – | prüft den ganzen MR, postet einen Sammelkommentar |
+| `update` | Merge Request Hook, `action: update` **mit** `oldrev` | `push` | prüft nur `oldrev..newrev`, ergänzt einen Kommentar |
+| `note` | Note Hook, `noteable_type: MergeRequest`, Text enthält `@<bot>`, Autor ≠ Bot | `note` | antwortet in derselben Discussion |
+| `pipeline` | Pipeline Hook mit `merge_request`, `status` `failed`/`success` | `pipeline` | wertet Ergebnis und Job-Logs aus, falls relevant |
+| – | Merge Request Hook, `action` `close`/`merge` | – | n8n schickt `DELETE` |
+
+**Feldpfade** im GitLab-Webhook (`body.` bei n8n davor):
+
+| Umschlag | Merge Request Hook | Note Hook | Pipeline Hook |
+|---|---|---|---|
+| `project.id` / `path` | `project.id` / `project.path_with_namespace` | gleich | gleich |
+| `mr.iid`, `title`, `source_branch`, `target_branch` | `object_attributes.*` | `merge_request.*` | `merge_request.*` |
+| `mr.url` | `object_attributes.url` | `merge_request.url`, sonst `project.web_url` + `/-/merge_requests/<iid>` | `merge_request.url` |
+| `mr.author_id` | `object_attributes.author_id` | `merge_request.author_id` | – |
+| `mr.head_sha` | `object_attributes.last_commit.id` | `merge_request.last_commit.id` | `object_attributes.sha` |
+| `push.oldrev` / `newrev` | `object_attributes.oldrev` / `last_commit.id` | – | – |
+| `note.*` | – | `object_attributes.id`, `.discussion_id`, `.note`; `user.username` | – |
+| `pipeline.*` | – | – | `object_attributes.id`, `.status` |
+
+`user` ist immer, wer das Event ausgelöst hat, nicht der MR-Autor.
+
+**Fertiger n8n-Code-Node:** [`infra/n8n/captain-umschlag.js`](../infra/n8n/captain-umschlag.js)
+macht genau dieses Mapping inkl. Filter und liefert `method`, `path`, `body`
+(oder `skip`). Dahinter ein IF auf `skip` und ein HTTP-Request-Node. Getestet
+mit `node --test infra/n8n/captain-umschlag.test.mjs`.
+
+Tipp beim Testen: Der „Test“-Knopf der GitLab-Webhook-Seite schickt den
+letzten MR mit `action: open`, auch wenn er längst gemergt ist (`state:
+merged`).
+
+`captain_review` ist die Formatversion. Selbst holt der Agent: MR-Details
+und `diff_refs`, Diff, Dateien des Source-Branches, Pipeline-Status und
 Job-Logs (Ersatz fürs Bauen), bestehende Discussions (nichts doppelt
 anmerken), ggf. das verlinkte Ticket und Review-Richtlinien aus der
 Wissensbasis. Die passenden Tools müssen in `CAPTAIN_AGENT_TOOLS` stehen.

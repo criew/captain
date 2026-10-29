@@ -79,14 +79,17 @@ Der Umschlag aufgeklappt (Event `open`):
     "iid": 42,
     "url": "https://gitlab.example.intern/team/bestellservice/-/merge_requests/42",
     "title": "Retry für Zahlungsabgleich",
-    "description": "Fixes PAY-123: Abgleich schlägt bei Timeouts fehl",
-    "author": "mmuster",
     "source_branch": "feature/pay-123-retry",
     "target_branch": "main",
-    "diff_refs": { "base_sha": "a1b2c3d", "start_sha": "a1b2c3d", "head_sha": "9f8e7d6" }
+    "author_id": 1151,
+    "head_sha": "9f8e7d6"
   }
 }
 ```
+
+Beschreibung, Autor und `diff_refs` holt der Reviewer selbst über den
+MCP-Server. Das Mapping vom GitLab-Webhook macht der n8n-Code-Node
+[`infra/n8n/captain-umschlag.js`](../../infra/n8n/captain-umschlag.js).
 
 Bei einem neuen Push (`update`) kommt `push` mit `oldrev`/`newrev` dazu, damit
 nur das Delta geprüft wird. Bei einem Kommentar (`note`) kommt `note` mit

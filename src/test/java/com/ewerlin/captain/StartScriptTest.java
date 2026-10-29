@@ -34,10 +34,11 @@ class StartScriptTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"start.test.mjs", "webfetch.test.mjs", "shared.test.mjs"})
+    @ValueSource(strings = {"opencode/start.test.mjs", "opencode/webfetch.test.mjs", "opencode/shared.test.mjs",
+            "n8n/captain-umschlag.test.mjs"})
     void startScriptUnitTests(String name) throws Exception {
         assumeTrue(nodeAvailable(), "node nicht installiert");
-        Process p = new ProcessBuilder("node", "--test", TestData.ROOT.resolve("infra/opencode").resolve(name).toString())
+        Process p = new ProcessBuilder("node", "--test", TestData.ROOT.resolve("infra").resolve(name).toString())
                 .redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertThat(p.waitFor(120, TimeUnit.SECONDS)).isTrue();
