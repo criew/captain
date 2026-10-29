@@ -87,18 +87,18 @@ Der Umschlag aufgeklappt (Event `open`):
 }
 ```
 
-Beschreibung, Autor und `diff_refs` holt der Reviewer selbst über den
-MCP-Server. Das Mapping vom GitLab-Webhook macht der n8n-Code-Node
+Beschreibung, Autorname und `diff_refs` stehen nicht (vollständig) im
+GitLab-Webhook, die holt der Reviewer mit dem MR-Tool. Bei einem neuen Push
+(`update`) kommt `push` mit `oldrev`/`newrev` dazu, damit nur das Delta
+geprüft wird. Bei einem Kommentar (`note`) kommt `note` mit Kommentartext und
+`discussion_id`. Das Mapping aus dem Webhook macht der fertige n8n-Code-Node
 [`infra/n8n/captain-umschlag.js`](../../infra/n8n/captain-umschlag.js).
-
-Bei einem neuen Push (`update`) kommt `push` mit `oldrev`/`newrev` dazu, damit
-nur das Delta geprüft wird. Bei einem Kommentar (`note`) kommt `note` mit
-Kommentartext und `discussion_id`.
 
 ### GitLab-Zugriff: PAT für den MCP-Server
 
 Der Reviewer spricht GitLab über den eingebauten MCP-Server
-(`https://<gitlab>/api/v4/mcp`, ab GitLab 18.3) an. Dafür braucht es einen
+(`https://<gitlab>/api/v4/mcp`, ab GitLab 18.3, hier getestet mit 19.2 und
+beschrieben bis 19.5) an. Dafür braucht es einen
 **fine-grained Personal Access Token**. Klassische PATs sowie Project- und
 Group-Access-Tokens lehnt der Server mit `403` ab. Zum Testen reicht ein
 eigener PAT, für den Betrieb ein Bot-User mit Rolle Reporter, beschränkt auf
@@ -130,10 +130,11 @@ Berechtigungen des PAT:
 | MCP tool | Execute | Pflicht für jeden MCP-Aufruf |
 | Project | Read | Projekt auflösen |
 | Merge request | Read | MR, Diffs, Discussions |
-| Repository | Read | Dateien lesen |
+| Merge request | Create | Kommentare (in 19.2 steckt das Notiz-Recht hier drin) |
+| Note / Discussion | Create | Kommentare, falls die Instanz das Recht getrennt anbietet |
+| Code / Repository / Commit | Read | Dateien und Commits lesen |
 | Pipeline | Read | Pipeline-Status, Jobs auflisten |
-| Job | Read | Job-Logs (`get_job` mit `include: log`) |
-| Note / Discussion | Create | Sammelkommentar, Antworten |
+| Job | Read | Job-Logs |
 
 Jedes Tool prüft zusätzlich die Rolle des Users im Projekt (mindestens
 Reporter).
@@ -142,21 +143,31 @@ Reporter).
 
 Nur diese Tools bekommt der Reviewer, keine andere Session (Namen
 `<server>_<tool>`, hier für den offiziellen GitLab-MCP mit Server-Name
-`gitlab`):
+`gitlab`). GitLab hat die Tools zwischen 19.2 und 19.5 umbenannt und
+zusammengelegt. opencode zeigt dem Modell nur, was der Server auflistet. Die
+Zeile unten gibt deshalb beide Namenssätze frei und passt für 19.2 bis 19.5,
+Namen, die der Server nicht kennt, bleiben einfach wirkungslos:
 
 ```sh
 # .env
 CAPTAIN_REST_AGENTS=reviewer
-CAPTAIN_AGENT_TOOLS=reviewer: gitlab_get_merge_request gitlab_get_repository_file gitlab_get_pipeline gitlab_get_job gitlab_save_note
+CAPTAIN_AGENT_TOOLS=reviewer: gitlab_get_merge_request gitlab_get_merge_request_diffs gitlab_get_merge_request_notes gitlab_create_merge_request_note gitlab_get_pipeline_jobs gitlab_get_job_log gitlab_get_repository_file gitlab_get_pipeline gitlab_get_job gitlab_save_note
 ```
 
-| Tool | wofür |
-|---|---|
-| `gitlab_get_merge_request` | MR-Daten, mit `include` auch Diffs und Discussions |
-| `gitlab_get_repository_file` | ganze Dateien aus dem Quell-Branch |
-| `gitlab_get_pipeline` | Pipeline-Status, mit `include: jobs` die Jobs (z. B. nur `failed`) |
-| `gitlab_get_job` | Job-Log mit `include: log` (ab GitLab 19.3, davor `gitlab_get_job_log`) |
-| `gitlab_save_note` | Sammelkommentar und Antworten in einer Discussion |
+| Aufgabe | GitLab 19.2 | GitLab 19.5 |
+|---|---|---|
+| MR-Daten | `get_merge_request` | `get_merge_request` |
+| Diff | `get_merge_request_diffs` | `get_merge_request` mit `include: ["diffs"]` |
+| Discussions | `get_merge_request_notes` | `get_merge_request` mit `include: ["notes"]` |
+| Kommentar, Antwort | `create_merge_request_note` | `save_note` |
+| Jobs einer Pipeline | `get_pipeline_jobs` | `get_pipeline` mit `include: ["jobs"]` |
+| Job-Log | `get_job_log` | `get_job` mit Log (`get_job_log` bleibt Alias) |
+| Datei lesen | – (nur über den Diff) | `get_repository_file` |
+
+In 19.5 sind die alten Namen weiter aufrufbar, aber nicht mehr gelistet.
+Neu dazu kamen in 19.3 `get_repository_file`, `get_pipeline` und `get_job`,
+`save_note` ersetzt `create_merge_request_note` ab 19.4. Quelle:
+[GitLab-Doku, MCP server tools](https://docs.gitlab.com/user/model_context_protocol/mcp_server_tools/).
 
 Dazu kommen die Tools des eigenen MCP-Servers für Wissensbasis und
 Richtlinien, ebenfalls einzeln in derselben Zeile. Die Regeln gelten erst für
@@ -192,7 +203,7 @@ Du bist der Review-Agent für GitLab-Merge-Requests (Java/Spring Boot). Du prüf
 Jede Nachricht ist ein Umschlag (JSON, "captain_review": 1). Den Diff holst du selbst mit den GitLab-Tools.
 
 # Ablauf
-open: Diff base_sha..head_sha, Discussions, Pipeline lesen, EIN Sammelkommentar.
+open: MR-Details, Diff, Discussions, Pipeline lesen, EIN Sammelkommentar.
 update: nur oldrev..newrev, Nachtrag.
 note: Antwort in derselben Discussion.
 pipeline: bei failed Job-Log lesen, Ursache kurz im MR nennen.
