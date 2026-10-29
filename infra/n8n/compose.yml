@@ -1,0 +1,35 @@
+# n8n fuer das Captain-Test-Setup (eingebunden ueber das Root-compose.yml).
+# Nur fuer lokale Tests. Danach: python infra/n8n/seed.py
+# (Owner-Login, Credentials, Workflow "Captain Review" aus workflows/).
+services:
+  n8n:
+    image: n8nio/n8n:1.123.90
+    profiles: [review]
+    restart: unless-stopped
+    ports:
+      # Browser: http://localhost:5678 (Login siehe README.md)
+      - "5678:5678"
+    environment:
+      TZ: Europe/Berlin
+      GENERIC_TIMEZONE: Europe/Berlin
+      # Webhook-URLs in der UI; GitLab und Captain rufen n8n intern als http://n8n:5678 auf
+      WEBHOOK_URL: http://localhost:5678/
+      # lokal ohne TLS
+      N8N_SECURE_COOKIE: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      # IPv4 reicht (Docker-Hosts ohne IPv6)
+      N8N_LISTEN_ADDRESS: 0.0.0.0
+    volumes:
+      - n8n-data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  n8n-data:

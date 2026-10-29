@@ -1,0 +1,75 @@
+// Admin-Config des lokalen Test-Setups (compose.yml im Repo-Root): wie die
+// Vorlage config/opencode.jsonc, dazu der eingebaute MCP-Server des lokalen
+// GitLab (infra/gitlab, Profil "review"). Token: MCP_GITLAB_TOKEN aus
+// infra/gitlab/mcp.env (seed.py). Die Tools bekommt nur der Agent reviewer
+// (CAPTAIN_AGENT_TOOLS im Root-compose.yml). Regeln: siehe Vorlage.
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Standardmodell (provider/modell). compose.deploy.yml setzt OPENCODE_MODEL,
+  // Default llm/$LLM_MODEL.
+  "model": "{env:OPENCODE_MODEL}",
+
+  "providers": {
+    // Generischer OpenAI-kompatibler Chat-Endpunkt mit Bearer-Token:
+    // vLLM (LLM_BASE_URL=https://host/v1), Open WebUI
+    // (LLM_BASE_URL=https://host/api).
+    "llm": {
+      "name": "LLM",
+      "package": "@ai-sdk/openai-compatible",
+      "settings": {
+        "baseURL": "{env:LLM_BASE_URL}",
+        "apiKey": "{env:LLM_API_KEY}"
+      },
+      // Modell des Servers (Schluessel = Modellname beim Server). Kontextlaenge
+      // und maximale Ausgabe aus der .env (LLM_CONTEXT, LLM_OUTPUT; vLLM:
+      // --max-model-len), damit opencode rechtzeitig kompaktiert.
+      "models": {
+        "{env:LLM_MODEL}": {
+          "name": "{env:LLM_MODEL}",
+          "limit": { "context": "{env:LLM_CONTEXT}", "output": "{env:LLM_OUTPUT}" }
+        }
+        // Nur wenn derselbe Server weitere Modelle anbietet, die per !modell
+        // waehlbar sein sollen, z. B.:
+        // "zweites-modell": { "name": "Zweites Modell", "limit": { "context": 32768, "output": 8192 } }
+      }
+    }
+  },
+
+  // MCP-Server: nur Remote (HTTP). Nur hier definiert, gilt fuer alle Chats.
+  // "codemode": false und "oauth": false setzt das Startskript immer.
+  "mcp": {
+    "servers": {
+      // GitLab CE 19.2: /api/v4/mcp, fine-grained Token mit MCP-Execute
+      "gitlab": {
+        "type": "remote",
+        "url": "http://gitlab:8929/api/v4/mcp",
+        "headers": { "Authorization": "Bearer {env:MCP_GITLAB_TOKEN}" },
+        "oauth": false,
+        "codemode": false
+      }
+    }
+  },
+
+  // Eigene Agenten fuer den REST-Kanal: waehlbar nur, wenn in CAPTAIN_REST_AGENTS
+  // (.env) genannt; n8n schickt dann "agent": "<name>". Rechte setzt Captain pro
+  // Session: Datei-Tools wie immer, dazu nur die Tools aus CAPTAIN_AGENT_TOOLS
+  // (z. B. "reviewer: gitlab_get_merge_request_diffs gitlab_create_merge_request_note").
+  // Diese Tools bekommt sonst keine Session. Shell gibt es nie.
+  // Den Prompt liest das Startskript aus agents/<name>.md neben dieser Datei
+  // (Markdown, max. 64 KB, keine {env:…}). "system" hier geht auch, gewinnt dann.
+  "agents": {
+    "reviewer": {
+      "description": "Statisches Review von GitLab-Merge-Requests",
+      "steps": 60
+    }
+  },
+
+  // Freigaben: hinter dem globalen "* * deny" der Sicherheitsbasis. Nur
+  // ausdruecklich genannte MCP-Tools (<server>_<tool>, Resource "*") werden
+  // dem Modell angeboten. Keine Wildcards wie "*" oder "beispiel_*" noetig –
+  // lieber jedes Tool einzeln.
+  "permissions": [
+    // { "action": "beispiel_suche", "resource": "*", "effect": "allow" }
+  ]
+}

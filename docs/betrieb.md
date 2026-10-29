@@ -430,3 +430,43 @@ Java 21 + Gradle-Wrapper, Node ≥ 18 für die Startskript-Tests.
 Test-Setup: `compose.yml` mit `infra/mattermost` und `infra/opencode`
 (Details in deren READMEs); `scripts/e2e.py` testet den laufenden Bot von
 außen (`--restart`, `--attachments`).
+
+### Lokales Review-Setup (GitLab + n8n)
+
+Profil `review` im `compose.yml`: GitLab CE 19.2 (`infra/gitlab`, Port 8929,
+~4 GB RAM, erster Start 3–5 min) und n8n 1.123 (`infra/n8n`, Port 5678).
+Ohne Profil starten beide nicht.
+
+```sh
+# infra/opencode/.env: LLM_* und CAPTAIN_API_TOKEN gesetzt
+docker compose --profile review up -d mattermost gitlab n8n
+python infra/mattermost/seed.py
+python infra/gitlab/seed.py        # Bot, Projekt, MCP-Token (mcp.env), Webhook
+docker compose --profile review up -d --build   # opencode + Captain
+python infra/n8n/seed.py           # Owner, Credentials, Workflow (aktiv)
+python infra/gitlab/seed.py --mr   # neuer Test-MR → Review im MR
+```
+
+Läuft opencode schon vor dem GitLab-Seed, danach `docker compose restart
+opencode` (liest `infra/gitlab/mcp.env` beim Start).
+
+| Was | Details |
+|---|---|
+| GitLab | <http://localhost:8929>, `root` / Passwort in `infra/gitlab/compose.yml`; Gruppe `team`, Projekt `playground` |
+| Bot | Service-Account `captain-bot` (instanzweit, `POST /service_accounts`), Developer in `team/playground` |
+| MCP-Token | fine-grained: `execute_mcp_tool` (User) + `read_project`, `read_merge_request`, `create_merge_request` (enthält MR-Notizen), `read_code`, `read_repository`, `read_commit`, `read_pipeline`, `read_job` (alle Mitgliedschaften). Die Admin-Route nimmt keine `granular_scopes`, `seed.py` legt ihn per `Sudo: captain-bot` an |
+| Webhook | `http://n8n:5678/webhook/gitlab`, MR-, Kommentar- und Pipeline-Events, Secret in `infra/gitlab/generated.env` |
+| n8n | <http://localhost:5678>, `admin@captain.test` / `Admin-Test-1234`; Workflow „Captain Review“ |
+| opencode | `infra/opencode/test/opencode.jsonc` (Vorlage + MCP-Server `gitlab`), Token aus `infra/gitlab/mcp.env` |
+| Captain | `CAPTAIN_REST_AGENTS=reviewer`, `CAPTAIN_AGENT_TOOLS` mit den 19.2-Tools (Root-`compose.yml`) |
+
+Der Workflow (`infra/n8n/workflows/captain-review.json`) hat zwei Ketten:
+GitLab-Webhook → Umschlag (Code-Node) → Relevant? → Captain, und
+Captain-Rückmeldung → Fehler? (`FEHLER:` oder `error`) → Alarm (Stop and
+Error, in den n8n-Executions rot). Die Copy+Paste-Vorlage mit Platzhalter-Hosts
+liegt in `docs/anwendungsbeispiel/n8n-captain-review.json`. Beide erzeugt
+`node infra/n8n/workflow.mjs` aus `infra/n8n/captain-umschlag.js`.
+
+Das lokale GitLab ist 19.2, die Tool-Namen je Version stehen im
+[Anwendungsbeispiel](anwendungsbeispiel/README.md#agent-tools-für-den-reviewer).
+Nie freigeben: `accept_merge_request`, `create_merge_request`, `manage_pipeline`.

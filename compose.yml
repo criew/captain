@@ -1,9 +1,13 @@
-# Captain Test-Setup: Mattermost + opencode + Bot
+# Captain Test-Setup: Mattermost + opencode + Bot, mit Profil "review" dazu
+# GitLab CE + n8n fuer das MR-Review (docs/betrieb.md: „Lokales Review-Setup“):
+#   docker compose --profile review up -d
 name: captain
 
 include:
   - infra/mattermost/compose.yml
   - infra/opencode/compose.yml
+  - infra/gitlab/compose.yml
+  - infra/n8n/compose.yml
 
 services:
   captain:
@@ -27,6 +31,14 @@ services:
       DATA_DIR: /data
       # nur für den Systemhinweis (opencode liest /shared, der Bot nicht)
       CAPTAIN_SHARED_DIR: ${CAPTAIN_SHARED_DIR:-}
+      # Review-Agent für n8n (Profil "review"): GitLab-MCP-Tools nur für ihn,
+      # Namen wie im GitLab CE 19.2 (MCP-Server "gitlab" in infra/opencode/test/)
+      CAPTAIN_REST_AGENTS: reviewer
+      CAPTAIN_AGENT_TOOLS: >-
+        reviewer: gitlab_get_merge_request gitlab_get_merge_request_diffs
+        gitlab_get_merge_request_commits gitlab_get_merge_request_notes
+        gitlab_create_merge_request_note gitlab_get_merge_request_pipelines
+        gitlab_get_pipeline_jobs gitlab_get_job_log
     # REST-Eingabekanal (aktiv mit CAPTAIN_API_TOKEN in infra/opencode/.env)
     ports:
       - "127.0.0.1:8090:8090"

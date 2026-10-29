@@ -35,7 +35,7 @@ class StartScriptTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"opencode/start.test.mjs", "opencode/webfetch.test.mjs", "opencode/shared.test.mjs",
-            "n8n/captain-umschlag.test.mjs"})
+            "n8n/captain-umschlag.test.mjs", "n8n/workflow.test.mjs"})
     void startScriptUnitTests(String name) throws Exception {
         assumeTrue(nodeAvailable(), "node nicht installiert");
         Process p = new ProcessBuilder("node", "--test", TestData.ROOT.resolve("infra").resolve(name).toString())

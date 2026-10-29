@@ -1,0 +1,245 @@
+{
+  "name": "Captain Review",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Captain Review\n\n**Oben:** GitLab-Webhook (Merge Request, Comments, Pipeline) → Umschlag → Captain.\nIn GitLab: Webhook-URL `…/webhook/gitlab`, Secret Token = Wert der Credential **GitLab Webhook** (Header `X-Gitlab-Token`).\n\n**Unten:** Rückmeldung von Captain (`callback_url`). `FEHLER:` oder `error` → Alarm. Den Stop-and-Error-Node durch Mail/Chat ersetzen.\n\nCredential **Captain API**: Header Auth, Name `Authorization`, Wert `Bearer <CAPTAIN_API_TOKEN>`.\nIm Code-Node oben `BOT` und `CALLBACK` anpassen. Format: docs/betrieb.md, „Umschlag“.",
+        "height": 300,
+        "width": 520
+      },
+      "id": "6f0b7c4e-0000-4000-8000-000000000001",
+      "name": "Hinweis",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gitlab",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "6f0b7c4e-0000-4000-8000-000000000002",
+      "name": "GitLab-Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "6f0b7c4e-0000-4000-8000-0000000000a1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "GitLab Webhook"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Code-Node (\"Run Once for Each Item\") hinter dem GitLab-Webhook:\n// GitLab-Event (Merge Request / Note / Pipeline Hook) -> Captain-Aufruf.\n// Format: docs/betrieb.md, Abschnitt \"Umschlag\". Ganzen Inhalt in den Code-Node kopieren,\n// oben BOT und CALLBACK anpassen. Danach ein IF auf {{ $json.skip }} und ein HTTP-Request-Node:\n//   Methode {{ $json.method }}, URL http://<captain>:8090{{ $json.path }},\n//   Header Authorization: Bearer <CAPTAIN_API_TOKEN>, Body (JSON) {{ $json.body }} (nur bei POST).\n\nconst BOT = \"captain-bot\"; // GitLab-Username des Bot-Users (eigene Notizen ignorieren, Erwähnung erkennen)\nconst CALLBACK = \"https://n8n.intern/webhook/captain-review\"; // leer = synchron warten\n\nfunction umschlag(headers, body, { bot = BOT, callback = CALLBACK } = {}) {\n  const hook = headers[\"x-gitlab-event\"];\n  const project = body.project;\n  const skip = (why) => ({ skip: true, why });\n  const id = (iid) => `gitlab:${project.id}:mr-${iid}`;\n  const mrOf = (m, headSha) => ({\n    iid: m.iid,\n    url: m.url ?? `${project.web_url}/-/merge_requests/${m.iid}`,\n    title: m.title,\n    source_branch: m.source_branch,\n    target_branch: m.target_branch,\n    author_id: m.author_id,\n    head_sha: headSha ?? m.last_commit?.id,\n  });\n\n  let event;\n  let mr;\n  const extra = {};\n  if (hook === \"Merge Request Hook\") {\n    const m = body.object_attributes;\n    const action = m.action;\n    if (action === \"close\" || action === \"merge\") {\n      return { skip: false, method: \"DELETE\", path: `/api/conversations/${id(m.iid)}` };\n    }\n    const readyNow = action === \"update\" && body.changes?.draft?.previous === true && body.changes.draft.current === false;\n    if (m.draft) return skip(\"Draft\");\n    if (action === \"open\" || action === \"reopen\" || readyNow) {\n      event = \"open\";\n    } else if (action === \"update\" && m.oldrev) {\n      event = \"update\";\n      extra.push = { oldrev: m.oldrev, newrev: m.last_commit?.id };\n    } else {\n      return skip(`action ${action}`);\n    }\n    mr = mrOf(m);\n  } else if (hook === \"Note Hook\") {\n    const n = body.object_attributes;\n    if (n.noteable_type !== \"MergeRequest\" || !body.merge_request) return skip(\"Notiz nicht an einem MR\");\n    if (body.user?.username === bot) return skip(\"eigene Notiz\");\n    if (!String(n.note ?? \"\").includes(`@${bot}`)) return skip(\"Bot nicht erwähnt\");\n    event = \"note\";\n    mr = mrOf(body.merge_request);\n    extra.note = { id: n.id, discussion_id: n.discussion_id, author: body.user?.username, body: n.note };\n  } else if (hook === \"Pipeline Hook\") {\n    const p = body.object_attributes;\n    if (!body.merge_request) return skip(\"keine MR-Pipeline\");\n    if (p.status !== \"failed\" && p.status !== \"success\") return skip(`Pipeline ${p.status}`);\n    event = \"pipeline\";\n    mr = mrOf(body.merge_request, p.sha);\n    extra.pipeline = { id: p.id, status: p.status };\n  } else {\n    return skip(`Hook ${hook}`);\n  }\n\n  const envelope = { captain_review: 1, event, project: { id: project.id, path: project.path_with_namespace }, mr, ...extra };\n  const request = { agent: \"reviewer\", sender: \"GitLab\", text: JSON.stringify(envelope) };\n  if (callback) request.callback_url = callback;\n  return { skip: false, method: \"POST\", path: `/api/conversations/${id(mr.iid)}/messages`, body: request, envelope };\n}\n\n// --- n8n ---\nreturn { json: umschlag($json.headers, $json.body) };\n"
+      },
+      "id": "6f0b7c4e-0000-4000-8000-000000000003",
+      "name": "Umschlag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6f0b7c4e-0000-4000-8000-0000000000c1",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6f0b7c4e-0000-4000-8000-000000000004",
+      "name": "Relevant?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "=http://captain.intern:8090{{ $json.path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body ?? {}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "6f0b7c4e-0000-4000-8000-000000000005",
+      "name": "Captain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        -20
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Captain API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "captain-review",
+        "options": {}
+      },
+      "id": "6f0b7c4e-0000-4000-8000-000000000006",
+      "name": "Captain-Rückmeldung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "6f0b7c4e-0000-4000-8000-0000000000a2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6f0b7c4e-0000-4000-8000-0000000000c2",
+              "leftValue": "={{ !!$json.body.error || String($json.body.answer ?? '').trim().startsWith('FEHLER:') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6f0b7c4e-0000-4000-8000-000000000007",
+      "name": "Fehler?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "=Review {{ $json.headers['x-captain-conversation'] }}: {{ $json.body.error || $json.body.answer }}"
+      },
+      "id": "6f0b7c4e-0000-4000-8000-000000000008",
+      "name": "Alarm",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        440,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "GitLab-Webhook": {
+      "main": [
+        [
+          {
+            "node": "Umschlag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Umschlag": {
+      "main": [
+        [
+          {
+            "node": "Relevant?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Relevant?": {
+      "main": [
+        [
+          {
+            "node": "Captain",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Captain-Rückmeldung": {
+      "main": [
+        [
+          {
+            "node": "Fehler?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehler?": {
+      "main": [
+        [
+          {
+            "node": "Alarm",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
