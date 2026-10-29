@@ -168,21 +168,28 @@ bekommen diese Tools ausdrücklich **nicht**, selbst wenn die Admin-Config sie
 global freigibt. Die Regeln stehen beim Anlegen der Session fest. Nach einer
 Änderung gelten sie also erst für neue Sessions.
 
-**GitLab-Review** (Beispiel): Ein Remote-MCP-Server mit GitLab-Tools (z. B.
-`zereight/gitlab-mcp` per HTTP oder der eigene MCP-Server) läuft mit dem
-Bot-Token (Rolle Reporter, Scopes `api` + `read_repository`). Der Token
-bleibt im MCP-Server bzw. in `mcp.env` (`{env:MCP_…}` im Header) und
-erreicht weder Nachricht noch Session.
+**GitLab-Review** (Beispiel): der in GitLab eingebaute MCP-Server
+(`https://<gitlab>/api/v4/mcp`) mit einem fine-grained PAT des Bot-Users
+(Rolle Reporter). Klassische PATs sowie Project- und Group-Tokens lehnt er ab.
+Der Token steht nur in `mcp.env` (`{env:MCP_…}` im Header) und erreicht weder
+Nachricht noch Session. Rechte: MCP tool Execute; Read auf Project, Merge
+request, Code/Repository/Commit, Pipeline, Job; Create auf Merge request (in
+19.2 steckt dort das Notiz-Recht).
+
+GitLab hat die Tools zwischen 19.2 und 19.5 umbenannt. Diese Zeile gibt beide
+Namenssätze frei, unbekannte Namen bleiben wirkungslos:
 
 ```sh
 # .env
 CAPTAIN_REST_AGENTS=reviewer
-CAPTAIN_AGENT_TOOLS=reviewer: gitlab_get_merge_request gitlab_get_merge_request_diffs gitlab_get_file_contents gitlab_create_merge_request_note
+CAPTAIN_AGENT_TOOLS=reviewer: gitlab_get_merge_request gitlab_get_merge_request_diffs gitlab_get_merge_request_notes gitlab_create_merge_request_note gitlab_get_pipeline_jobs gitlab_get_job_log gitlab_get_repository_file gitlab_get_pipeline gitlab_get_job gitlab_save_note
 ```
 
-Die Tool-Namen hängen vom MCP-Server ab (`<server>_<tool>`; Server-Name aus
-`mcp.servers`). Der Reviewer liest Diff und Dateien über diese Tools, legt
-Notizen im Session-Verzeichnis ab und postet selbst einen Sammelkommentar.
+Die Tool-Namen sind `<server>_<tool>` (Server-Name aus `mcp.servers`). Welche
+Namen zu welcher GitLab-Version gehören, steht im
+[Anwendungsbeispiel](anwendungsbeispiel/README.md#agent-tools-für-den-reviewer).
+Der Reviewer liest Diff und Dateien über diese Tools, legt Notizen im
+Session-Verzeichnis ab und postet selbst einen Sammelkommentar.
 
 ### Umschlag (n8n → Reviewer)
 
