@@ -2,17 +2,21 @@
 // (laeuft auch ueber JUnit: StartScriptTest bzw. ./gradlew nodeTest)
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 
-import { buildConfig, enabledProviders, environment, FIXED, NO_PROVIDER, PACKAGES, parseJsonc, refAllowed, resolveEnv, sanitize } from "./start.mjs";
+import { buildConfig, enabledProviders, environment, FIXED, NO_PROVIDER, PACKAGES, parseJsonc, PROMPT_MAX, promptReader, refAllowed, resolveEnv, sanitize } from "./start.mjs";
 
 const TEMPLATE = fs.readFileSync(new URL("./config/opencode.jsonc", import.meta.url), "utf8");
+const TEMPLATE_AGENTS = new URL("./config/agents", import.meta.url).pathname;
 const ENV = { LLM_BASE_URL: "http://llm/v1", LLM_API_KEY: "k", LLM_MODEL: "m1", LLM_CONTEXT: "131072", LLM_OUTPUT: "16384", OPENCODE_MODEL: "llm/m1",
   MM_BOT_TOKEN: "BOT-SECRET", OPENCODE_SERVER_PASSWORD: "PW-SECRET", MCP_X_TOKEN: "mcp-t" };
 
-function build(text, env = ENV) {
+function build(text, env = ENV, agentsDir = TEMPLATE_AGENTS) {
   const warnings = [];
-  const r = buildConfig(text, env, (w) => warnings.push(w));
+  const warn = (w) => warnings.push(w);
+  const r = buildConfig(text, env, warn, promptReader(agentsDir, warn));
   return { ...r, warnings };
 }
 
@@ -30,6 +34,9 @@ test("Vorlage ergibt gueltige, platzhalterfreie Config", () => {
   assert.deepEqual(Object.keys(clean.providers.llm.models), ["m1"]);
   assert.deepEqual(clean.providers.llm.models.m1.limit, { context: 131072, output: 16384 }); // Zahlen, kein Text
   assert.ok(!/\{(env|file):/.test(json));
+  // Prompt des Beispiel-Agenten aus agents/reviewer.md
+  assert.match(clean.agents.reviewer.system, /^# Rolle\n/);
+  assert.equal(clean.agents.reviewer.mode, "primary");
   // ungueltige bzw. fehlende Limits: verworfen (Warnung), Rest bleibt
   const bad = build(TEMPLATE, { ...ENV, LLM_CONTEXT: "viel", LLM_OUTPUT: "" });
   assert.deepEqual(bad.clean.providers.llm.models.m1.limit, {});
@@ -117,6 +124,30 @@ test("agents: nur eigene Namen, Prompt/Modell/Schritte, immer primary, keine Rec
     assert.ok(warnings.some((x) => x.includes(w)), w);
   }
   assert.equal(sanitize({ agents: { plan: { system: "x" } } }).agents, undefined);
+});
+
+test("agents: Prompt aus agents/<name>.md", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "captain-agents-"));
+  fs.writeFileSync(path.join(dir, "datei.md"), "\uFEFF# Prompt\nZeile 2\n");
+  fs.writeFileSync(path.join(dir, "beides.md"), "aus Datei");
+  fs.writeFileSync(path.join(dir, "env.md"), "Token: {env:LLM_API_KEY}");
+  fs.writeFileSync(path.join(dir, "gross.md"), "x".repeat(PROMPT_MAX + 1));
+  fs.writeFileSync(path.join(dir, "leer.md"), "  \n");
+  fs.symlinkSync("/etc/passwd", path.join(dir, "link.md"));
+  fs.mkdirSync(path.join(dir, "ordner.md"));
+  const warnings = [];
+  const warn = (w) => warnings.push(w);
+  const clean = sanitize({ agents: {
+    datei: { steps: 5 }, beides: { system: "aus Config" }, env: {}, gross: {}, leer: {}, link: {}, ordner: {}, fehlt: {},
+  } }, warn, promptReader(dir, warn));
+  assert.deepEqual(clean.agents, {
+    datei: { steps: 5, system: "# Prompt\nZeile 2\n", mode: "primary" },
+    beides: { system: "aus Config", mode: "primary" },
+  });
+  for (const w of ["beides.md wird ignoriert", "agents.env: Prompt enthaelt", "gross.md: groesser", "agents.leer: kein Prompt",
+    "link.md: keine normale Datei", "ordner.md: keine normale Datei", "agents.fehlt: kein Prompt"]) {
+    assert.ok(warnings.some((x) => x.includes(w)), w);
+  }
 });
 
 test("Provider: nur eingebaute Pakete, Unterbaeume per Allowlist", () => {

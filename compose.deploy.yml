@@ -54,9 +54,11 @@ services:
       - |
         set -e
         h=/captain-home
-        mkdir -p $$h/config $$h/data $$h/sessions $$h/opencode $$h/shared
-        for f in /opt/captain/defaults/*; do
-          [ -e "$$h/config/$${f##*/}" ] || cp "$$f" $$h/config/
+        mkdir -p $$h/config/agents $$h/data $$h/sessions $$h/opencode $$h/shared
+        for f in /opt/captain/defaults/* /opt/captain/defaults/agents/*; do
+          [ -f "$$f" ] || continue
+          t=$$h/config/$${f#/opt/captain/defaults/}
+          [ -e "$$t" ] || cp "$$f" "$$t"
         done
         chown -R "$$CAPTAIN_UID:$$CAPTAIN_GID" $$h/config $$h/data $$h/sessions $$h/opencode
         chown "$$CAPTAIN_UID:$$CAPTAIN_GID" $$h $$h/shared

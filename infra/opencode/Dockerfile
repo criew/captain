@@ -66,13 +66,16 @@ COPY start.mjs egress.mjs shared.mjs /opt/captain/
 # --- Admin-Config (editierbar, im Betrieb vom Host eingebunden) -------------
 # /etc/captain/opencode.jsonc: Provider, Modelle, Limits, MCP-Server, Freigaben
 # (start.mjs prueft sie; opencode liest die Kopie /run/captain/opencode.json).
+# /etc/captain/agents/<name>.md: Prompts eigener Agenten (REST, z. B. reviewer).
 # /etc/captain/AGENTS.md: globale Stil-/Werkzeugregeln (Systemprompt); die
 # globale AGENTS.md von opencode zeigt per Symlink dorthin.
 # /opt/captain/defaults: Vorlagen, mit denen compose.deploy.yml ein leeres
 # $CAPTAIN_HOME/config befuellt.
 COPY config/opencode.jsonc config/AGENTS.md /opt/captain/defaults/
+# Agent-Prompts (agents/<name>.md, siehe start.mjs: promptReader)
+COPY config/agents/ /opt/captain/defaults/agents/
 RUN mkdir -p /etc/captain \
- && cp /opt/captain/defaults/* /etc/captain/ \
+ && cp -r /opt/captain/defaults/* /etc/captain/ \
  && ln -s /etc/captain/AGENTS.md /home/captain/.config/opencode/AGENTS.md
 
 # Schreibbar fuer jede UID (Sticky-Bit wie /tmp): Session-Verzeichnisse,

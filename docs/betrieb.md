@@ -71,7 +71,7 @@ opencode bekommt nur die in `compose.deploy.yml` genannten Variablen plus
 
 ```
 $CAPTAIN_HOME/
-├─ config/    opencode.jsonc, AGENTS.md, ggf. persona.md, CA   (editierbar)
+├─ config/    opencode.jsonc, AGENTS.md, agents/<name>.md, ggf. persona.md, CA   (editierbar)
 ├─ data/      sessions.json (Session-Store), cursors.json (Nachhol-Cursor)
 ├─ sessions/  Session-Verzeichnisse (im Container /tmp/captain/<session-id>)
 ├─ shared/    empfohlener Ort für CAPTAIN_SHARED_DIR
@@ -140,10 +140,25 @@ entscheidet:
   behält ihn.
 - Agent später aus `CAPTAIN_REST_AGENTS` entfernt → `400`, bis `DELETE`.
 
-**Definition** in der Admin-Config (`config/opencode.jsonc`, Block `agents`,
-Beispiel `reviewer` in der Vorlage): nur `system`, `description`, `model`,
-`steps`, immer `mode: "primary"`, keine eingebauten Namen (`build`, `plan`,
-…) und keine `permissions`.
+**Definition** in zwei Teilen (Beispiel `reviewer` in der Vorlage):
+
+- `config/opencode.jsonc`, Block `agents`: Name plus `description`,
+  `model`, `steps`. Immer `mode: "primary"`, keine eingebauten Namen
+  (`build`, `plan`, …), keine `permissions`.
+- `config/agents/<name>.md`: der Prompt als normales Markdown. Höchstens
+  64 KB, kein Symlink, keine `{env:…}`/`{file:…}` (sonst wird der Agent
+  verworfen). Steht zusätzlich `system` in der Config, gewinnt das, und das
+  Log warnt.
+
+```jsonc
+"agents": {
+  "reviewer": { "description": "Statisches Review von GitLab-Merge-Requests", "steps": 60 }
+}
+```
+
+Änderungen am Prompt wirken nach `docker compose -f compose.deploy.yml restart
+opencode` und nur für neue Sessions. `init` kopiert die Vorlage
+`agents/reviewer.md`, wenn sie fehlt. Eigene Dateien bleiben unangetastet.
 
 **Rechte:** Wie jede Session nur Dateien im eigenen Verzeichnis, **keine
 Shell**. Dazu kommen nur die Tools aus `CAPTAIN_AGENT_TOOLS` für diesen Agenten
@@ -255,8 +270,8 @@ Neue Nachricht nach dem Aufräumen:
   `models.*.limit`), weitere Modelle nur für `!modell`-Wechsel
 - `mcp.servers.*` nur `type: "remote"`
 - `permissions` (`{action, resource, effect}`), `compaction`
-- `agents.<eigener Name>` nur `system`, `description`, `model`, `steps`
-  (siehe [Agenten](#agenten-im-rest-kanal))
+- `agents.<eigener Name>` nur `system`, `description`, `model`, `steps`;
+  Prompt besser in `agents/<name>.md` (siehe [Agenten](#agenten-im-rest-kanal))
 
 Alles andere (`plugins`, lokale MCP-Server, eingebaute Agenten und
 Agent-Rechte, `commands`, `skills`,
